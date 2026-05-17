@@ -412,6 +412,7 @@ onMounted(() => {
 
 .table-wrap {
     margin: 0 16px;
+    padding-bottom: 40px; /* Clear the floating Stop FAB so the last row stays visible */
     display: flex;
     flex-direction: column;
 }
