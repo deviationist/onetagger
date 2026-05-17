@@ -704,13 +704,15 @@ impl Tagger {
                                 files.remove(index);
                             }
                         }
-                        // Remove from failed
-                        if let Some(i) = failed_files.iter().position(|i| i == &status.path) {
-                            failed_files.remove(i);
-                        }
+                        // Remove from failed (all occurrences — earlier platforms may have pushed
+                        // the same path multiple times before this success)
+                        failed_files.retain(|p| p != &status.path);
                     }
-                    // Log failed
-                    if status.status == TaggingState::Error && !succesful_files.contains(&status.path) {
+                    // Log failed (dedupe at push so we don't accumulate duplicates across platforms)
+                    if status.status == TaggingState::Error
+                        && !succesful_files.contains(&status.path)
+                        && !failed_files.contains(&status.path)
+                    {
                         failed_files.push(status.path.to_owned());
                     }
 
