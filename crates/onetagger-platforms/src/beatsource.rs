@@ -28,7 +28,21 @@ impl Beatsource {
 
     /// Strip ALL parentheses to prevent Beatsource API 403/400 decoding errors
     pub fn clear_search_query(query: &str) -> String {
-        query.replace("(", "").replace(")", "")
+        query
+            .replace("(", " ")
+            .replace(")", " ")
+            .replace("[", " ")
+            .replace("]", " ")
+            .replace(",", " ")
+            .replace("Ft.", "")
+            .replace("ft.", "")
+            .replace(" Ft ", " ")
+            .replace(" ft ", " ")
+            .replace(" feat. ", " ")
+            .replace(" feat ", " ")
+            .replace("  ", " ")
+            .trim()
+            .to_string()
     }
 
     /// Search for tracks
