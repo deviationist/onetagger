@@ -182,6 +182,8 @@ jobs:
         cargo update
         cargo build --release
         cargo bundle --release
+      env:
+        PNPM_CONFIG_ONLY_ALLOW_BUILDS: '["@parcel/watcher", "esbuild"]'
 
     - name: Bundle
       run: |
