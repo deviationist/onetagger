@@ -169,10 +169,20 @@ jobs:
 
     - name: Install dependencies
       run: |
-        brew install rustup nodejs pnpm
+        brew install rustup
         rustup install stable
         cargo install cargo-bundle --version 0.6.1 --locked || true
     
+    - name: Install NodeJS
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18
+
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 8
+
     - name: Build
       run: |
         cd client
@@ -182,8 +192,6 @@ jobs:
         cargo update
         cargo build --release
         cargo bundle --release
-      env:
-        PNPM_CONFIG_ONLY_ALLOW_BUILDS: '["@parcel/watcher", "esbuild"]'
 
     - name: Bundle
       run: |
