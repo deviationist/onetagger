@@ -17,7 +17,6 @@
 <h3 align='center'><b></b></h3>
 <hr>
 
-Temporary Beatport fix build May 2026
 Cross-platform music tagger.
 It can fetch metadata from Beatport, Traxsource, Juno Download, Discogs, Musicbrainz and Spotify.
 It is also able to fetch Spotify's Audio Features based on ISRC & exact match. 
@@ -37,7 +36,14 @@ You can download latest binaries from [releases](https://github.com/Marekkon5/on
 
 ## Docker
 
-OneTagger can also run as a headless web service in a container. The image builds `onetagger-cli` only (no GUI / webkit / gtk dependencies) and serves the embedded web UI over plain HTTP on port `36913`. The Vue client picks `ws://` or `wss://` automatically from the page's protocol, so the same image works behind both HTTP and HTTPS reverse proxies.
+OneTagger can also run as a headless web service in a container. The image builds
+`onetagger-cli` only (no GUI / webkit / gtk dependencies) and serves the embedded web UI
+over plain HTTP on port `36913`.
+
+The runtime is built on the [LinuxServer.io](https://www.linuxserver.io/) s6-overlay base
+image, so it follows the familiar `PUID` / `PGID` / `UMASK` convention: the server runs as
+a non-root user whose uid/gid you choose, and the files it creates use the umask you set —
+no `--user` juggling or umask wrappers needed.
 
 ### Build the image
 
@@ -53,14 +59,16 @@ Or without compose:
 docker build -t onetagger-local .
 ```
 
-Multi-stage build: `rust:1-bookworm` compiles the Vue client (pnpm) and `onetagger-cli`, then `debian:bookworm-slim` is the runtime with `libasound2`, `libssl3`, and `ca-certificates`. Final image is around 210 MB.
+Multi-stage build: `rust:1-bookworm` compiles the Vue client (pnpm) and `onetagger-cli`,
+then the LinuxServer `baseimage-debian:bookworm` is the runtime with `libasound2`,
+`libssl3`, and `ca-certificates`. Final image is around 295 MB.
 
 ### Run with docker compose
 
-A `docker-compose.yml` is provided at the repo root. Adjust the volume paths to your music library, then:
+A `docker-compose.yml` is provided at the repo root. Set `PUID` / `PGID` to your user and
+adjust the volume paths to your music library, then:
 
 ```
-mkdir -p data/config && sudo chown -R 1000:1000 data/config
 docker compose up -d
 docker compose logs -f
 ```
@@ -73,73 +81,75 @@ Equivalent invocation without compose:
 docker run -d \
   --name onetagger \
   --restart unless-stopped \
+  -e PUID=1000 \
+  -e PGID=1000 \
+  -e UMASK=002 \
+  -e TZ=Etc/UTC \
   -p 127.0.0.1:36913:36913 \
-  -v "$(pwd)/data/config:/home/onetagger/.config/onetagger" \
+  -v "$(pwd)/config:/config" \
   -v /path/to/your/music:/music \
-  --user 1000:1000 \
-  --read-only \
-  --tmpfs /tmp \
-  --cap-drop ALL \
   --security-opt no-new-privileges:true \
   onetagger-local:latest
 ```
 
 ### Options reference
 
+#### Environment variables
+
+| Variable | Effect |
+|---|---|
+| `PUID` / `PGID` | Host uid/gid the server runs as, so tag writes keep correct ownership on the mounted library. Default `1000` / `1000`. |
+| `UMASK` | umask for files OneTagger *creates* (cover art, brand-new files). `002` makes them group-writable (`0660`); `022` → `0644`. Default `022`. (Tag writes to *existing* files are in-place and keep the file's current mode regardless.) |
+| `ONETAGGER_PATH` | Initial path shown in the UI's folder picker. Default `/music`. |
+| `TZ` | Container timezone, e.g. `Europe/Oslo`. |
+
 #### Port
 
-The server listens on TCP `36913` inside the container. The port is a compile-time constant (`onetagger-shared::PORT`) — to expose it on a different host port just remap, e.g. `-p 127.0.0.1:8080:36913`.
+The server listens on TCP `36913` inside the container. The port is a compile-time
+constant (`onetagger-shared::PORT`) — to expose it on a different host port just remap,
+e.g. `-p 127.0.0.1:8080:36913`.
 
 #### Volumes
 
 | Container path | Purpose |
 |---|---|
-| `/home/onetagger/.config/onetagger` | OneTagger config: Spotify/Discogs OAuth tokens, custom platform settings, autotagger profiles. Persist this across rebuilds. |
-| Any path you mount your music to | Music library. Mount read-write where tag writes are allowed; mount read-only (append `:ro`) for browse-only paths. A common pattern is a writable "staging" path and a read-only "main" path. |
+| `/config` | OneTagger config: Spotify/Discogs OAuth tokens, custom platform settings, autotagger profiles. The server sets `XDG_CONFIG_HOME=/config`, so files live under `/config/onetagger`. Persist this across rebuilds. |
+| `/music` | Music library. OneTagger writes tags in place, so anything mounted read-write here will be modified. Mount read-only (append `:ro`) for browse-only paths; a common pattern is a writable "staging" path plus a read-only "main" path. |
+| `/custom-cont-init.d` | Optional. Scripts dropped here run during init (as root, *before* the drop to `PUID`/`PGID`) — e.g. to add the runtime user to extra host groups. Standard LinuxServer mechanism. |
 
-#### User
+#### Server options
 
-The image creates a `onetagger` user at UID 1000, GID 1000. Run as a different host UID with `--user $(id -u):$(id -g)` so tag writes keep correct ownership on the mounted library. The numeric UID doesn't need to exist in `/etc/passwd` inside the container.
+The image starts `onetagger-cli server --expose --path "$ONETAGGER_PATH"`. `--expose`
+binds `0.0.0.0:36913` (without it the server binds `127.0.0.1` inside the container and
+the host can't reach it); the initial folder is set via `ONETAGGER_PATH`.
 
-#### CLI arguments
-
-The default command is `server --expose`. Override via compose `command:` or by appending args to `docker run`:
-
-| Flag | Effect |
-|---|---|
-| `--expose`, `-e` | **Required in the container** — binds the server to `0.0.0.0:36913`. Without it the bind is `127.0.0.1` inside the container, which the host can't reach. |
-| `--path <path>`, `-p <path>` | Initial path shown in the UI's folder picker. e.g. `--path /music`. |
-| `--browser`, `-b` | Not useful headless — would try to open a browser inside the container. |
-
-Example: set the initial UI path via compose
-
-```yaml
-services:
-  onetagger:
-    image: onetagger-local:latest
-    command: ["server", "--expose", "--path", "/music"]
-```
-
-The other `onetagger-cli` subcommands (`autotagger`, `audiofeatures`, `renamer`, `authorize-spotify`) can be invoked directly against the same image:
+The other `onetagger-cli` subcommands (`autotagger`, `audiofeatures`, `renamer`,
+`authorize-spotify`) can be run against the same image by overriding the entrypoint:
 
 ```
-docker run --rm -v /path/to/music:/music onetagger-local:latest autotagger --path /music
+docker run --rm \
+  -e PUID=1000 -e PGID=1000 \
+  -v /path/to/music:/music \
+  --entrypoint onetagger-cli \
+  onetagger-local:latest autotagger --path /music
 ```
 
-#### Recommended hardening
+#### Hardening
 
-The provided `docker-compose.yml` enables these by default:
-
-| Flag | Effect |
-|---|---|
-| `--read-only` | Root filesystem mounted read-only. All persistent state lives in the explicit volumes. |
-| `--tmpfs /tmp` | Writable scratch space; needed because the root FS is read-only. |
-| `--cap-drop ALL` | Drops all Linux capabilities — OneTagger needs none. |
-| `--security-opt no-new-privileges:true` | Standard hardening. |
+The LinuxServer init starts as root, creates the `PUID`/`PGID` user, then drops privileges
+to it via s6. Because of that root→user drop the container needs the default Linux
+capabilities, so — unlike a plain image — **don't** `--cap-drop ALL` it.
+`--security-opt no-new-privileges:true` is safe and recommended: it blocks privilege
+*escalation* without preventing the init's privilege *drop*. The provided
+`docker-compose.yml` sets it by default.
 
 #### Behind a reverse proxy
 
-The container speaks plain HTTP. To put it behind HTTPS, terminate TLS at a reverse proxy (Caddy, Nginx, Traefik, etc.) and forward to `127.0.0.1:36913`. WebSocket upgrades on `/ws` must be passed through; the UI's WebSocket scheme is selected automatically from the page's protocol.
+The container speaks plain HTTP. To put it behind HTTPS, terminate TLS at a reverse proxy
+(Caddy, Nginx, Traefik, etc.) and forward to `127.0.0.1:36913`. WebSocket upgrades on
+`/ws` must be passed through. Note the upstream web client derives its WebSocket URL from
+the page protocol; if your build serves the UI over HTTPS, make sure the client uses
+`wss://` (see the companion client change if connecting fails over TLS).
 
 Example Nginx fragment:
 
@@ -153,7 +163,6 @@ location / {
     proxy_set_header X-Real-IP $remote_addr;
 }
 ```
-
 
 ## Credits
 Bas Curtiz - UI, Idea, Help  
