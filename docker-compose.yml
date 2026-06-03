@@ -2,12 +2,24 @@ services:
   onetagger:
     build:
       # Builds from local source (COPY . in the Dockerfile), so local edits to the source
-      # tree are picked up on the next `docker compose build`.
+      # tree are picked up on the next `docker compose build`. Or pull a prebuilt image.
       context: .
       dockerfile: Dockerfile
     image: onetagger:latest
     container_name: onetagger
     restart: unless-stopped
+
+    # LinuxServer.io-style runtime controls:
+    #   PUID/PGID  - the host uid/gid the server runs as, so tag writes land with
+    #                correct ownership on your mounted library. Set to your user.
+    #   UMASK      - 002 makes new files group-writable (0660); 022 -> 0644.
+    #   ONETAGGER_PATH - initial folder the UI's picker opens at (default /music).
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - UMASK=002
+      - TZ=Etc/UTC
+      - ONETAGGER_PATH=/music
 
     # Bind to localhost by default — OneTagger has no built-in authentication. Put a
     # reverse proxy in front (Nginx/Caddy/Traefik) for TLS and any auth, or change to
@@ -17,29 +29,23 @@ services:
       - "127.0.0.1:36913:36913"
 
     volumes:
-      # OneTagger config (Spotify/Discogs OAuth tokens, custom platform settings, etc).
-      # Pre-create with the right ownership so the container user (UID 1000) can write:
-      #   mkdir -p ./data/config && sudo chown -R 1000:1000 ./data/config
-      - ./data/config:/home/onetagger/.config/onetagger
+      # Persistent config (Spotify/Discogs OAuth tokens, custom platforms, settings, logs).
+      # OneTagger honours XDG_CONFIG_HOME=/config, so this lands at /config/onetagger.
+      - ./config:/config
 
-      # Music library. Adjust to point at your collection. OneTagger writes tags in
-      # place, so anything mounted read-write here will be modified. A common pattern
-      # is to mount a small writable "staging" path for new files plus the rest of the
-      # collection read-only, e.g.:
+      # Music library. OneTagger writes tags in place, so anything mounted read-write
+      # here will be modified. A common pattern is a writable staging path plus the
+      # rest of the collection read-only:
       #   - ./music/staging:/music/staging
-      #   - /path/to/main/library:/music/main:ro
+      #   - /path/to/library:/music/main:ro
       - ./music:/music
 
-    # Run as host UID:GID so tag writes keep correct ownership on the mounted library.
-    # Change if your host user isn't 1000:1000.
-    user: "1000:1000"
+      # Optional: scripts dropped here run during init, before the server starts
+      # (e.g. add `abc` to extra host groups). Same mechanism as other LSIO images.
+      # - ./custom-cont-init.d:/custom-cont-init.d:ro
 
-    # Hardening: root filesystem read-only with /tmp on tmpfs, no Linux capabilities,
-    # no new privileges. OneTagger doesn't need any of these.
-    read_only: true
-    tmpfs:
-      - /tmp
-    cap_drop:
-      - ALL
+    # LSIO images need their default capabilities (the s6 init drops root->abc itself),
+    # so do NOT cap_drop: ALL here. no-new-privileges is safe — it only blocks *gaining*
+    # privileges, not the init's privilege *drop*.
     security_opt:
       - no-new-privileges:true
