@@ -1,0 +1,17 @@
+#!/usr/bin/with-contenv bash
+# OneTagger headless server, supervised by s6-overlay and run as the LSIO `abc`
+# user — its identity comes from PUID/PGID and its writes from UMASK, exactly
+# like every other LinuxServer image. No `user:`/umask wrapper needed in compose.
+#
+# Config dir: OneTagger uses the `directories` crate (ProjectDirs preference_dir),
+# which honours XDG_CONFIG_HOME on Linux, so this resolves to /config/onetagger —
+# the LSIO /config convention. Mount your persistent config at /config.
+export XDG_CONFIG_HOME=/config
+
+# Belt-and-suspenders: the base already applies UMASK, but set it explicitly so
+# new files (cover art, brand-new tracks) land group-writable when UMASK=002.
+umask "${UMASK:-022}"
+
+# --expose binds 0.0.0.0:36913 (reachable through the reverse proxy); without it
+# OneTagger binds 127.0.0.1 inside the container and is unreachable.
+exec s6-setuidgid abc onetagger-cli server --expose --path "${ONETAGGER_PATH:-/music}"
