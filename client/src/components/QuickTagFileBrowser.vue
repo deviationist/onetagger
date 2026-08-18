@@ -142,12 +142,21 @@ onMounted(() => {
                 break;
             case 'pathUpdate':
                 initial.value = true;
-                $1t.send('quickTagFolder', { path: $1t.settings.value.path, subdir: '..' });
+                // Open at the configured path, not its parent -- see the note on mount below.
+                $1t.send('quickTagFolder', { path: $1t.settings.value.path });
         }
     }
 
     initial.value = true;
-    loadFiles('..');
+    // Open *at* settings.path rather than its parent, matching the Tag Editor.
+    // Both views share settings.path, so opening the parent here meant the two
+    // browsers started a level apart from the same setting -- and with the
+    // server launched via `--path` (ONETAGGER_PATH in the Docker image) that
+    // put this one above the configured library root, listing whatever happens
+    // to sit alongside it. Showing the configured folder's own subfolders is
+    // also the more useful listing: they are the folders holding tracks.
+    // Reaching a sibling is still one click on "Parent folder".
+    loadFiles();
 });
 
 </script>
