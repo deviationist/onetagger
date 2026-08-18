@@ -28,6 +28,8 @@ class Settings {
     tagEditorCustom: string[] = [];
     tagEditorAutosave: boolean =  false;
     tagEditorPlayer: boolean =  false;
+    tagEditorSort: string = 'name';
+    tagEditorSortDescending: boolean = false;
 
     // Read from json
     static fromJson(data: any): Settings {

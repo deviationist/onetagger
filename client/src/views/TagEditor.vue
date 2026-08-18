@@ -19,6 +19,26 @@
                 <!-- Filter -->
                 <q-input dense filled label='Filter' class='q-mb-sm' @update:model-value='(v: any) => applyFilter(v as string)' v-model='filter'></q-input>
 
+                <!-- Sort -->
+                <div class='row items-center q-mb-sm no-wrap'>
+                    <q-btn-toggle
+                        v-model='sortMode'
+                        @update:model-value='onSortChange'
+                        dense unelevated no-caps
+                        size='sm'
+                        toggle-color='primary'
+                        text-color='grey-4'
+                        :options="[{label: 'Name', value: 'name'}, {label: 'Date', value: 'date'}]"
+                    ></q-btn-toggle>
+                    <q-btn
+                        dense flat size='sm' class='q-ml-xs' text-color='grey-4'
+                        :icon="sortDescending ? 'mdi-arrow-down' : 'mdi-arrow-up'"
+                        @click='toggleSortDirection'
+                    >
+                        <q-tooltip>{{ sortDescending ? (sortMode == 'date' ? 'Newest first' : 'Z to A') : (sortMode == 'date' ? 'Oldest first' : 'A to Z') }}</q-tooltip>
+                    </q-btn>
+                </div>
+
                 <!-- Parent -->
                 <div class='q-mb-sm clickable te-file' @click='loadFiles("..")'>
                     <q-icon size='xs' class='q-mb-xs text-grey-4' name='mdi-folder-upload'></q-icon>
@@ -384,6 +404,8 @@ const addAlbumArtDialog = ref(false);
 const customList = ref($1t.settings.value.tagEditorCustom);
 const id3v24 = ref(false);
 const manualTagPath = ref<string | undefined>(undefined);
+const sortMode = ref<string>($1t.settings.value.tagEditorSort ?? 'name');
+const sortDescending = ref<boolean>($1t.settings.value.tagEditorSortDescending === true);
 
 
 function loadFiles(f?: string) {
@@ -411,6 +433,58 @@ function loadFile(path: string) {
 function isSelected(path: string) {
     if (!file.value) return false;
     return file.value.path == path;
+}
+
+/// Sort the browser listing. Directories are always pinned above files so
+/// navigation stays predictable regardless of mode.
+///
+/// 'date' sorts on `modified` (unix millis) which the backend attaches to each
+/// FolderEntry. Note this is mtime, not a creation date: birth time is not
+/// available over NFS, and OneTagger rewrites a file's mtime when it writes
+/// tags. For finding freshly imported, not-yet-tagged files it is exactly
+/// right; don't read it as a permanent "date added".
+/// Entries with no `modified` (stat failed) sort last.
+function sortFiles(list: any[]): any[] {
+    return [...list].sort((a: any, b: any) => {
+        if (a.dir && !b.dir) return -1;
+        if (b.dir && !a.dir) return 1;
+
+        if (sortMode.value == 'date') {
+            const va = a.modified, vb = b.modified;
+            // Missing timestamps sink to the bottom in either direction
+            if (va == null && vb == null) return nameCompare(a, b);
+            if (va == null) return 1;
+            if (vb == null) return -1;
+            if (va == vb) return nameCompare(a, b);
+            return sortDescending.value ? vb - va : va - vb;
+        }
+
+        const r = nameCompare(a, b);
+        return sortDescending.value ? -r : r;
+    });
+}
+
+function nameCompare(a: any, b: any): number {
+    return a.filename.toLowerCase().localeCompare(b.filename.toLowerCase());
+}
+
+/// Re-sort what's already loaded, without a round trip to the backend
+function resort() {
+    originalFiles.value = sortFiles(originalFiles.value);
+    applyFilter(filter.value);
+}
+
+function onSortChange() {
+    $1t.settings.value.tagEditorSort = sortMode.value;
+    $1t.saveSettings(false);
+    resort();
+}
+
+function toggleSortDirection() {
+    sortDescending.value = !sortDescending.value;
+    $1t.settings.value.tagEditorSortDescending = sortDescending.value;
+    $1t.saveSettings(false);
+    resort();
 }
 
 function applyFilter(v: string) {
@@ -701,12 +775,8 @@ function wsCallback(e: any) {
                 customList.value = [... new Set(files)];
             } else {
                 path.value = e.path;
-                //Dirs first and sort
-                originalFiles.value = e.files.sort((a: any, b: any) => {
-                    if (a.dir && !b.dir) return -1;
-                    if (b.dir && !a.dir) return 1;
-                    return a.filename.toLowerCase().localeCompare(b.filename.toLowerCase());
-                });
+                // Dirs first, then per the user's chosen sort mode
+                originalFiles.value = sortFiles(e.files);
                 applyFilter(filter.value);
             }
             saveSettings();
