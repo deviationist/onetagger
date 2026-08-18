@@ -109,11 +109,21 @@ impl FileBrowser {
         if filename.starts_with('.') {
             return None;
         }
+        // Last-modified time as unix millis, for the client-side date sort.
+        // Best-effort: a stat failure just yields None and the entry sorts last.
+        // Cheap in practice — the listing already stat()ed this path for is_dir().
+        let modified = path.metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as i64);
+
         Some(FolderEntry {
             dir,
             playlist,
             path,
-            filename
+            filename,
+            modified
         })
     }
 
@@ -124,7 +134,9 @@ pub struct FolderEntry {
     pub path: PathBuf,
     pub filename: String,
     pub dir: bool,
-    pub playlist: bool
+    pub playlist: bool,
+    /// Last modified, unix millis. `None` if the path could not be stat()ed.
+    pub modified: Option<i64>
 }
 
 pub struct FolderBrowser;
