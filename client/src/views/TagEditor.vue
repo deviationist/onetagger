@@ -28,14 +28,14 @@
                         size='sm'
                         toggle-color='primary'
                         text-color='grey-4'
-                        :options="[{label: 'Name', value: 'name'}, {label: 'Date', value: 'date'}]"
+                        :options="[{label: 'Name', value: 'name'}, {label: 'Added', value: 'created'}, {label: 'Modified', value: 'modified'}]"
                     ></q-btn-toggle>
                     <q-btn
                         dense flat size='sm' class='q-ml-xs' text-color='grey-4'
                         :icon="sortDescending ? 'mdi-arrow-down' : 'mdi-arrow-up'"
                         @click='toggleSortDirection'
                     >
-                        <q-tooltip>{{ sortDescending ? (sortMode == 'date' ? 'Newest first' : 'Z to A') : (sortMode == 'date' ? 'Oldest first' : 'A to Z') }}</q-tooltip>
+                        <q-tooltip>{{ sortMode == 'name' ? (sortDescending ? 'Z to A' : 'A to Z') : (sortDescending ? 'Newest first' : 'Oldest first') }}</q-tooltip>
                     </q-btn>
                 </div>
 
@@ -404,7 +404,9 @@ const addAlbumArtDialog = ref(false);
 const customList = ref($1t.settings.value.tagEditorCustom);
 const id3v24 = ref(false);
 const manualTagPath = ref<string | undefined>(undefined);
-const sortMode = ref<string>($1t.settings.value.tagEditorSort ?? 'name');
+// 'date' is the pre-three-mode value; migrate it to its new name.
+const storedSort = $1t.settings.value.tagEditorSort;
+const sortMode = ref<string>(storedSort == 'date' ? 'modified' : (storedSort ?? 'name'));
 const sortDescending = ref<boolean>($1t.settings.value.tagEditorSortDescending === true);
 
 
@@ -438,30 +440,45 @@ function isSelected(path: string) {
 /// Sort the browser listing. Directories are always pinned above files so
 /// navigation stays predictable regardless of mode.
 ///
-/// 'date' sorts on `modified` (unix millis) which the backend attaches to each
-/// FolderEntry. Note this is mtime, not a creation date: birth time is not
-/// available over NFS, and OneTagger rewrites a file's mtime when it writes
-/// tags. For finding freshly imported, not-yet-tagged files it is exactly
-/// right; don't read it as a permanent "date added".
-/// Entries with no `modified` (stat failed) sort last.
+/// Three modes: 'name', 'created' (birth time) and 'modified' (mtime), both
+/// timestamps supplied by the backend as unix millis.
+///
+/// The two dates answer different questions. 'created' is when the file
+/// appeared here, and is the one to reach for when hunting freshly imported
+/// tracks -- it cannot be inherited from wherever the file came from, and
+/// tagging does not move it. 'modified' is the file's content date, which a
+/// copy may carry over from another machine and which OneTagger rewrites
+/// whenever it writes tags.
+///
+/// `created` is unavailable on some platform/filesystem/transport combinations
+/// (NFS only began reporting it in recent kernels), so it falls back to
+/// `modified` per entry rather than collapsing the whole sort. Entries with
+/// neither timestamp sort last, and equal values tiebreak on filename so the
+/// order stays stable between renders.
 function sortFiles(list: any[]): any[] {
     return [...list].sort((a: any, b: any) => {
         if (a.dir && !b.dir) return -1;
         if (b.dir && !a.dir) return 1;
 
-        if (sortMode.value == 'date') {
-            const va = a.modified, vb = b.modified;
-            // Missing timestamps sink to the bottom in either direction
-            if (va == null && vb == null) return nameCompare(a, b);
-            if (va == null) return 1;
-            if (vb == null) return -1;
-            if (va == vb) return nameCompare(a, b);
-            return sortDescending.value ? vb - va : va - vb;
+        if (sortMode.value == 'name') {
+            const r = nameCompare(a, b);
+            return sortDescending.value ? -r : r;
         }
 
-        const r = nameCompare(a, b);
-        return sortDescending.value ? -r : r;
+        const va = timeOf(a), vb = timeOf(b);
+        if (va == null && vb == null) return nameCompare(a, b);
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        if (va == vb) return nameCompare(a, b);
+        return sortDescending.value ? vb - va : va - vb;
     });
+}
+
+/// The timestamp the active mode sorts on, falling back to mtime when the
+/// backend could not supply a birth time for this entry.
+function timeOf(f: any): number | null {
+    if (sortMode.value == 'created') return f.created ?? f.modified ?? null;
+    return f.modified ?? null;
 }
 
 function nameCompare(a: any, b: any): number {
