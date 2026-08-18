@@ -86,9 +86,29 @@ impl FileBrowser {
 
     // Check if path is supported
     fn validate_path(&self, path: PathBuf) -> Option<FolderEntry> {
-        let dir = path.is_dir();
-        let mut playlist = false;
         let filename = path.file_name()?.to_str()?.to_owned();
+
+        // Hoisted above the stat() below: dotfiles are dropped whatever their
+        // type, so there is no reason to pay a stat for them. Trees touched by
+        // macOS carry a ._* AppleDouble sibling next to every real file.
+        if filename.starts_with('.') {
+            return None;
+        }
+
+        // A single stat() serving both is_dir and the mtime the browser's date
+        // sort needs. Calling path.is_dir() and path.metadata() separately
+        // doubles the stat count for every entry, which is measurable on a
+        // network filesystem. A failure here is not fatal: an unreadable entry
+        // (a broken symlink, say) reports dir = false and no timestamp, which
+        // is exactly what the bare is_dir() did before.
+        let meta = path.metadata().ok();
+        let dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+        let modified = meta
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as i64);
+
+        let mut playlist = false;
         // Filter extensions
         if !dir {
             // Playlist
@@ -106,18 +126,6 @@ impl FileBrowser {
             }
         }
         
-        if filename.starts_with('.') {
-            return None;
-        }
-        // Last-modified time as unix millis, for the client-side date sort.
-        // Best-effort: a stat failure just yields None and the entry sorts last.
-        // Cheap in practice — the listing already stat()ed this path for is_dir().
-        let modified = path.metadata()
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_millis() as i64);
-
         Some(FolderEntry {
             dir,
             playlist,
