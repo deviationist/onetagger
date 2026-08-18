@@ -80,6 +80,9 @@ class QuickTagSettings {
     autosave: boolean = false;
     sortDescending: boolean = false;
     sortOption: string = 'title';
+    // Sorting of the folder browser, distinct from the track-list sort above
+    browserSort: string = 'name';
+    browserSortDescending: boolean = false;
     trackIndex: number = -1;
     separators: Separators = new Separators();
     noteTag: NoteTagSettings = new NoteTagSettings();

@@ -22,6 +22,25 @@
         <!-- Filter -->        
         <q-input dense filled label='Filter' class='q-mb-sm' @update:model-value='applyFilter' v-model='filter'></q-input>
 
+        <!-- Sort -->
+        <div class='row items-center q-mb-sm no-wrap'>
+            <q-btn-toggle
+                v-model='sortMode'
+                @update:model-value='onSortChange'
+                dense unelevated no-caps size='sm'
+                toggle-color='primary'
+                text-color='grey-5'
+                :options='BROWSER_SORT_OPTIONS'
+            ></q-btn-toggle>
+            <q-btn
+                dense flat size='sm' class='q-ml-xs' text-color='grey-5'
+                :icon="sortDescending ? 'mdi-arrow-down' : 'mdi-arrow-up'"
+                @click='toggleSortDirection'
+            >
+                <q-tooltip>{{ sortDirectionLabel(sortMode, sortDescending) }}</q-tooltip>
+            </q-btn>
+        </div>
+
         <!-- Parent -->
         <div class='q-mb-sm clickable te-file' @click='loadFiles("..")'>
             <q-icon size='xs' class='q-mb-xs text-grey-5' name='mdi-folder-upload'></q-icon>
@@ -50,6 +69,8 @@
 <script lang='ts' setup>
 import { onMounted, ref } from 'vue';
 import { get1t } from '../scripts/onetagger.js';
+import { sortBrowserEntries, BROWSER_SORT_OPTIONS, sortDirectionLabel, migrateBrowserSort } from '../scripts/browsersort';
+import type { BrowserSort } from '../scripts/browsersort';
 
 const $1t = get1t();
 const path = ref($1t.settings.value.path);
@@ -58,6 +79,27 @@ const originalFiles = ref<any[]>([]);
 const filter = ref<string | undefined>(undefined);
 const initial = ref(true);
 const editPath = ref(false);
+const sortMode = ref<BrowserSort>(migrateBrowserSort($1t.settings.value.quickTag.browserSort));
+const sortDescending = ref<boolean>($1t.settings.value.quickTag.browserSortDescending === true);
+
+/// Re-sort what is already loaded; no round trip to the backend needed.
+function resort() {
+    originalFiles.value = sortBrowserEntries(originalFiles.value, sortMode.value, sortDescending.value) as any[];
+    applyFilter();
+}
+
+function onSortChange() {
+    $1t.settings.value.quickTag.browserSort = sortMode.value;
+    $1t.saveSettings(false);
+    resort();
+}
+
+function toggleSortDirection() {
+    sortDescending.value = !sortDescending.value;
+    $1t.settings.value.quickTag.browserSortDescending = sortDescending.value;
+    $1t.saveSettings(false);
+    resort();
+}
 
 function loadFiles(f?: string) {
     $1t.send('quickTagFolder', {path: path.value, subdir: f});
@@ -94,8 +136,8 @@ onMounted(() => {
                 initial.value = false;
             
                 if (json.files.length == 0) return;
-                files.value = json.files;
-                originalFiles.value = json.files;
+                originalFiles.value = sortBrowserEntries(json.files, sortMode.value, sortDescending.value) as any[];
+                files.value = originalFiles.value;
                 path.value = json.path;
                 break;
             case 'pathUpdate':

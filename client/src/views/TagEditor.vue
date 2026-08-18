@@ -28,14 +28,14 @@
                         size='sm'
                         toggle-color='primary'
                         text-color='grey-4'
-                        :options="[{label: 'Name', value: 'name'}, {label: 'Added', value: 'created'}, {label: 'Modified', value: 'modified'}]"
+                        :options='BROWSER_SORT_OPTIONS'
                     ></q-btn-toggle>
                     <q-btn
                         dense flat size='sm' class='q-ml-xs' text-color='grey-4'
                         :icon="sortDescending ? 'mdi-arrow-down' : 'mdi-arrow-up'"
                         @click='toggleSortDirection'
                     >
-                        <q-tooltip>{{ sortMode == 'name' ? (sortDescending ? 'Z to A' : 'A to Z') : (sortDescending ? 'Newest first' : 'Oldest first') }}</q-tooltip>
+                        <q-tooltip>{{ sortDirectionLabel(sortMode, sortDescending) }}</q-tooltip>
                     </q-btn>
                 </div>
 
@@ -385,6 +385,8 @@ import draggable from 'vuedraggable';
 import { ABSTRACTIONS } from '../scripts/tags';
 import { computed, onDeactivated, onMounted, ref } from 'vue';
 import { get1t } from '../scripts/onetagger';
+import { sortBrowserEntries, BROWSER_SORT_OPTIONS, sortDirectionLabel, migrateBrowserSort } from '../scripts/browsersort';
+import type { BrowserSort } from '../scripts/browsersort';
 import { useQuasar } from 'quasar';
 import ManualTag from '../components/ManualTag.vue';
 import TagEditorAlbumArt from '../components/TagEditorAlbumArt.vue';
@@ -404,9 +406,7 @@ const addAlbumArtDialog = ref(false);
 const customList = ref($1t.settings.value.tagEditorCustom);
 const id3v24 = ref(false);
 const manualTagPath = ref<string | undefined>(undefined);
-// 'date' is the pre-three-mode value; migrate it to its new name.
-const storedSort = $1t.settings.value.tagEditorSort;
-const sortMode = ref<string>(storedSort == 'date' ? 'modified' : (storedSort ?? 'name'));
+const sortMode = ref<BrowserSort>(migrateBrowserSort($1t.settings.value.tagEditorSort));
 const sortDescending = ref<boolean>($1t.settings.value.tagEditorSortDescending === true);
 
 
@@ -437,57 +437,9 @@ function isSelected(path: string) {
     return file.value.path == path;
 }
 
-/// Sort the browser listing. Directories are always pinned above files so
-/// navigation stays predictable regardless of mode.
-///
-/// Three modes: 'name', 'created' (birth time) and 'modified' (mtime), both
-/// timestamps supplied by the backend as unix millis.
-///
-/// The two dates answer different questions. 'created' is when the file
-/// appeared here, and is the one to reach for when hunting freshly imported
-/// tracks -- it cannot be inherited from wherever the file came from, and
-/// tagging does not move it. 'modified' is the file's content date, which a
-/// copy may carry over from another machine and which OneTagger rewrites
-/// whenever it writes tags.
-///
-/// `created` is unavailable on some platform/filesystem/transport combinations
-/// (NFS only began reporting it in recent kernels), so it falls back to
-/// `modified` per entry rather than collapsing the whole sort. Entries with
-/// neither timestamp sort last, and equal values tiebreak on filename so the
-/// order stays stable between renders.
-function sortFiles(list: any[]): any[] {
-    return [...list].sort((a: any, b: any) => {
-        if (a.dir && !b.dir) return -1;
-        if (b.dir && !a.dir) return 1;
-
-        if (sortMode.value == 'name') {
-            const r = nameCompare(a, b);
-            return sortDescending.value ? -r : r;
-        }
-
-        const va = timeOf(a), vb = timeOf(b);
-        if (va == null && vb == null) return nameCompare(a, b);
-        if (va == null) return 1;
-        if (vb == null) return -1;
-        if (va == vb) return nameCompare(a, b);
-        return sortDescending.value ? vb - va : va - vb;
-    });
-}
-
-/// The timestamp the active mode sorts on, falling back to mtime when the
-/// backend could not supply a birth time for this entry.
-function timeOf(f: any): number | null {
-    if (sortMode.value == 'created') return f.created ?? f.modified ?? null;
-    return f.modified ?? null;
-}
-
-function nameCompare(a: any, b: any): number {
-    return a.filename.toLowerCase().localeCompare(b.filename.toLowerCase());
-}
-
 /// Re-sort what's already loaded, without a round trip to the backend
 function resort() {
-    originalFiles.value = sortFiles(originalFiles.value);
+    originalFiles.value = sortBrowserEntries(originalFiles.value, sortMode.value, sortDescending.value) as any[];
     applyFilter(filter.value);
 }
 
@@ -793,7 +745,7 @@ function wsCallback(e: any) {
             } else {
                 path.value = e.path;
                 // Dirs first, then per the user's chosen sort mode
-                originalFiles.value = sortFiles(e.files);
+                originalFiles.value = sortBrowserEntries(e.files, sortMode.value, sortDescending.value) as any[];
                 applyFilter(filter.value);
             }
             saveSettings();
