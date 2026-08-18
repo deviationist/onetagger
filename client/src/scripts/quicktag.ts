@@ -82,6 +82,10 @@ interface QuickTagFile {
     tags: Record<string, string[]>;
     year?: number;
     key?: string;
+    /// Unix millis from the backend. `created` is the file's birth time and is
+    /// undefined wherever the platform/filesystem/transport cannot supply one.
+    modified?: number;
+    created?: number;
 }
 
 /// Custom Tag chips
@@ -281,6 +285,8 @@ class QTTrack implements QuickTagFile {
     tags!: Record<string, string[]>;
     year?: number | undefined;
     key?: string | undefined;
+    modified?: number | undefined;
+    created?: number | undefined;
 
     // QTTrack
     mood?: string;

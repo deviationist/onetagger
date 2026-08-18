@@ -254,7 +254,16 @@ const { setVerticalScrollPosition } = scroll;
 
 const $1t = get1t();
 const $q = useQuasar();
-const sortOptions = ['title', 'artist', 'mood', 'energy', 'genre', 'year', 'bpm', 'key', 'custom'];
+const sortOptions = ['title', 'artist', 'mood', 'energy', 'genre', 'year', 'bpm', 'key', 'custom', 'added', 'modified'];
+
+/// Timestamp a date sort reads, in unix millis. 'added' is the file's birth
+/// time -- when the track arrived here -- which unlike mtime cannot be
+/// inherited from wherever it was copied from and is not moved by writing
+/// tags. It falls back to mtime where the backend could not supply one.
+function trackTime(t: any): number {
+    if (sortOption.value == 'added') return t.created ?? t.modified ?? 0;
+    return t.modified ?? 0;
+}
 const saveDialog = ref(false);
 const noteDialog = ref(false);
 const filter = ref<string | undefined>(undefined);
@@ -379,6 +388,12 @@ function filterTracks() {
         tracks.sort((a, b) => {
             let va, vb;
             switch (sortOption.value) {
+                // Timestamps -- numeric, so compared as numbers not strings
+                case 'added':
+                case 'modified':
+                    va = trackTime(a);
+                    vb = trackTime(b);
+                    break;
                 // Arrays
                 case 'artist':
                 case 'genre':
