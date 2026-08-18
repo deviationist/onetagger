@@ -1,6 +1,8 @@
 use std::time::Duration;
 use anyhow::Error;
 use lofty::file::AudioFile;
+use lofty::probe::Probe;
+use lofty::config::ParseOptions;
 use std::path::{PathBuf, Path};
 use std::io::BufReader;
 use std::fs::File;
@@ -16,7 +18,14 @@ pub struct OGGSource {
 impl OGGSource {
     pub fn new(path: impl AsRef<Path>) -> Result<OGGSource, Error> {
         // Get duration
-        let file = lofty::read_from_path(&path)?;
+        // Properties only -- read_tags(false). We want the duration and nothing
+        // else, and lofty's default reads tags too, so a single malformed frame
+        // (a date written DD-MM-YYYY rather than the ID3v2.4 yyyy-MM-dd, say)
+        // would fail the whole load and make the track unplayable. Skipping the
+        // tag parse removes that entire class of failure from the audio path.
+        let file = Probe::open(&path)?
+            .options(ParseOptions::new().read_tags(false))
+            .read()?;
         let duration = file.properties().duration();
 
         Ok(OGGSource {
