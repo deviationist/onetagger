@@ -396,10 +396,16 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
         // Load player file
         Action::PlayerLoad { path } => {
             let source = AudioSources::from_path(&path)?;
-            // Meta
-            let tag = Tag::load_file(&path, false)?;
-            let title = tag.tag().get_field(Field::Title).map(|i| i.first().map(String::from)).flatten();
-            let artists = tag.tag().get_field(Field::Artist).unwrap_or(vec![]);
+            // Meta. Best-effort: the title and artist here only label the player
+            // bar, so a tag that fails to parse should cost the label, not the
+            // ability to play the file.
+            let tag = Tag::load_file(&path, false).ok();
+            let title = tag.as_ref()
+                .and_then(|t| t.tag().get_field(Field::Title))
+                .and_then(|i| i.first().map(String::from));
+            let artists = tag.as_ref()
+                .and_then(|t| t.tag().get_field(Field::Artist))
+                .unwrap_or(vec![]);
             // Send to UI
             send_socket(websocket, json!({
                 "action": "playerLoad",
