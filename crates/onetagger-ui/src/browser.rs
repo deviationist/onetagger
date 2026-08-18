@@ -103,8 +103,17 @@ impl FileBrowser {
         // is exactly what the bare is_dir() did before.
         let meta = path.metadata().ok();
         let dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
-        let modified = meta
+        let modified = meta.as_ref()
             .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as i64);
+        // Creation time. Maps to STATX_BTIME on Linux, so it comes from the
+        // same stat() as `modified` above -- no extra syscall. It is None
+        // wherever the platform or filesystem cannot supply it, which the
+        // client handles by falling back to `modified`; NFS in particular only
+        // began reporting it in recent kernels.
+        let created = meta.as_ref()
+            .and_then(|m| m.created().ok())
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_millis() as i64);
 
@@ -131,7 +140,8 @@ impl FileBrowser {
             playlist,
             path,
             filename,
-            modified
+            modified,
+            created
         })
     }
 
@@ -144,7 +154,10 @@ pub struct FolderEntry {
     pub dir: bool,
     pub playlist: bool,
     /// Last modified, unix millis. `None` if the path could not be stat()ed.
-    pub modified: Option<i64>
+    pub modified: Option<i64>,
+    /// Created (birth time), unix millis. `None` where the platform, the
+    /// filesystem, or the transport cannot supply it.
+    pub created: Option<i64>
 }
 
 pub struct FolderBrowser;
