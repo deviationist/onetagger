@@ -113,7 +113,12 @@ pub struct QuickTagFile {
     rating: u8,
     tags: HashMap<String, Vec<String>>,
     year: Option<i32>,
-    key: Option<String>
+    key: Option<String>,
+    /// Last modified, unix millis. `None` if the file could not be stat()ed.
+    modified: Option<i64>,
+    /// Created (birth time), unix millis. `None` where the platform, the
+    /// filesystem, or the transport cannot supply it.
+    created: Option<i64>
 }
 
 impl QuickTagFile {
@@ -126,6 +131,17 @@ impl QuickTagFile {
 
     /// Load tags from `Tag`
     pub fn from_tag(path: impl AsRef<Path>, tag_wrap: &Tag) -> Result<QuickTagFile, Error> {
+        // File timestamps, so the track list can sort by when a track arrived
+        // or was last written. One stat() against a whole tag parse is noise.
+        // `created` maps to STATX_BTIME on Linux and is None wherever the
+        // platform, filesystem or transport cannot supply a birth time.
+        let meta = path.as_ref().metadata().ok();
+        let to_millis = |t: std::time::SystemTime| t
+            .duration_since(std::time::UNIX_EPOCH).ok()
+            .map(|d| d.as_millis() as i64);
+        let modified = meta.as_ref().and_then(|m| m.modified().ok()).and_then(to_millis);
+        let created = meta.as_ref().and_then(|m| m.created().ok()).and_then(to_millis);
+
         let tag = tag_wrap.tag();
         let mut all_tags = tag.all_tags();
         // Insert overriden tags
@@ -152,7 +168,9 @@ impl QuickTagFile {
             },
             tags: all_tags,
             year: tag.get_date().map(|d| d.year),
-            key: tag.get_field(Field::Key).map(|f| f.first().map(String::from)).flatten()
+            key: tag.get_field(Field::Key).map(|f| f.first().map(String::from)).flatten(),
+            modified,
+            created
         })
     }
 
