@@ -386,6 +386,7 @@ import { ABSTRACTIONS } from '../scripts/tags';
 import { computed, onDeactivated, onMounted, ref } from 'vue';
 import { get1t } from '../scripts/onetagger';
 import { sortBrowserEntries, BROWSER_SORT_OPTIONS, sortDirectionLabel, migrateBrowserSort } from '../scripts/browsersort';
+import { useUrlState } from '../scripts/urlstate';
 import type { BrowserSort } from '../scripts/browsersort';
 import { useQuasar } from 'quasar';
 import ManualTag from '../components/ManualTag.vue';
@@ -393,11 +394,14 @@ import TagEditorAlbumArt from '../components/TagEditorAlbumArt.vue';
 
 const $1t = get1t();
 const $q = useQuasar();
-const path = ref($1t.settings.value.path);
+// A ?path= / ?filter= / ?sort= / ?file= in the URL wins over the persisted
+// setting, so a link opens where it points rather than where you last were.
+const url = useUrlState('tageditor');
+const path = ref(url.read('path') ?? $1t.settings.value.path);
 const files = ref<any[]>([]);
 const originalFiles = ref<any[]>([]);
 const file = ref<any>(undefined);
-const filter = ref<any>(undefined);
+const filter = ref<any>(url.read('filter'));
 const changes = ref<any[]>([]);
 const newTag = ref<any>(undefined);
 const albumArt = ref<any>(undefined);
@@ -406,8 +410,9 @@ const addAlbumArtDialog = ref(false);
 const customList = ref($1t.settings.value.tagEditorCustom);
 const id3v24 = ref(false);
 const manualTagPath = ref<string | undefined>(undefined);
-const sortMode = ref<BrowserSort>(migrateBrowserSort($1t.settings.value.tagEditorSort));
-const sortDescending = ref<boolean>($1t.settings.value.tagEditorSortDescending === true);
+const pendingUrlFile = ref<string | undefined>(url.read('file'));
+const sortMode = ref<BrowserSort>(migrateBrowserSort(url.read('sort') ?? $1t.settings.value.tagEditorSort));
+const sortDescending = ref<boolean>(url.readBool('desc') ?? ($1t.settings.value.tagEditorSortDescending === true));
 
 
 function loadFiles(f?: string) {
@@ -419,6 +424,7 @@ function browse() {
 }
 
 function loadFile(path: string) {
+    url.write({ file: path });
     // Autosave
     if (file.value && $1t.settings.value.tagEditorAutosave) {
         save();
@@ -446,6 +452,7 @@ function resort() {
 function onSortChange() {
     $1t.settings.value.tagEditorSort = sortMode.value;
     $1t.saveSettings(false);
+    url.write({ sort: sortMode.value == 'name' ? undefined : sortMode.value });
     resort();
 }
 
@@ -453,11 +460,13 @@ function toggleSortDirection() {
     sortDescending.value = !sortDescending.value;
     $1t.settings.value.tagEditorSortDescending = sortDescending.value;
     $1t.saveSettings(false);
+    url.write({ desc: sortDescending.value });
     resort();
 }
 
 function applyFilter(v: string) {
     filter.value = v;
+    url.write({ filter: v });
     if (!filter.value || filter.value.trim().length == 0) {
         files.value = originalFiles.value;
         return;
@@ -744,9 +753,17 @@ function wsCallback(e: any) {
                 customList.value = [... new Set(files)];
             } else {
                 path.value = e.path;
+                url.write({ path: e.path });
                 // Dirs first, then per the user's chosen sort mode
                 originalFiles.value = sortBrowserEntries(e.files, sortMode.value, sortDescending.value) as any[];
                 applyFilter(filter.value);
+                // Deep link: open the requested file once the folder holding it
+                // has loaded. Guarded so navigating away later doesn't reopen it.
+                if (pendingUrlFile.value) {
+                    const target = pendingUrlFile.value;
+                    pendingUrlFile.value = undefined;
+                    loadFile(target);
+                }
             }
             saveSettings();
             break;
