@@ -3,6 +3,9 @@ import { QuickTagSettings } from "./settings";
 import { FrameName, Keybind } from "./utils";
 import { get1t } from "./onetagger";
 
+/// Must match QUICKTAG_LOAD_LIMIT in crates/onetagger-ui/src/socket.rs
+export const QUICKTAG_LOAD_LIMIT = 1000;
+
 class QuickTag { 
     tracks: QTTrack[] = [];
     track: QTMultiTrack = new QTMultiTrack();
@@ -26,7 +29,7 @@ class QuickTag {
 
     /// Check if the loading was limited
     isLimited() {
-        return (this.wasLimited && (this.tracks.length + this.failed.length) == 500);
+        return (this.wasLimited && (this.tracks.length + this.failed.length) == QUICKTAG_LOAD_LIMIT);
     }
 }
 

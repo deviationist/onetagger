@@ -19,6 +19,13 @@ use onetagger_player::{AudioSources, AudioPlayer};
 use onetagger_shared::{Settings, COMMIT};
 use onetagger_playlist::{UIPlaylist, PLAYLIST_EXTENSIONS, get_files_from_playlist_file};
 
+/// How many tracks Quick Tag loads before it stops and offers "Show all".
+/// The cap exists to keep the initial websocket payload small, not because
+/// loading is slow: measured on a 773-file folder the text tags average
+/// ~2.2KB/file, so this bound is ~2.3MB of JSON. Album art is NOT included
+/// (it is fetched lazily per row), which is what makes the bound cheap.
+pub const QUICKTAG_LOAD_LIMIT: usize = 1000;
+
 use crate::StartContext;
 use crate::quicktag::{QuickTag, QuickTagFile, QuickTagData};
 use crate::tageditor::TagEditor;
@@ -444,7 +451,7 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
                         recursive.unwrap_or(false), 
                         &separators, 
                         0, 
-                        limit.map(|l| l.then_some(500)).flatten().unwrap_or(usize::MAX)
+                        limit.map(|l| l.then_some(QUICKTAG_LOAD_LIMIT)).flatten().unwrap_or(usize::MAX)
                     )?;
                 }
             }
