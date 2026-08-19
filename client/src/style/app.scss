@@ -53,6 +53,30 @@
 
 * {
     font-family: Dosis !important;
+}
+
+// Text selection.
+//
+// This used to be `user-select: none` on `*`, with a `.selectable` class to opt
+// back in -- a desktop-app convention that stops stray selections when a window
+// is also a UI chrome surface. In a browser it is hostile: you cannot copy a
+// filename, a tag value, or an error message without opening devtools, and the
+// opt-in class was only ever applied in three places.
+//
+// Inverted here: content is selectable, and selection is suppressed only where
+// it actively fights an interaction. That is drag sources above all -- text
+// selection inside a vuedraggable row competes with starting the drag -- plus
+// the usual buttons and toolbars, where a stray highlight is just noise.
+button,
+.q-btn,
+.q-toolbar,
+.q-tab,
+.q-tabs,
+.q-drawer .q-item,
+#fileList,
+#customList,
+.te-file,
+.qt-file {
     user-select: none;
 }
 
