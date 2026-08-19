@@ -17,13 +17,17 @@
 //!
 //! * the new title fits the existing chunk, so the payload is patched in place and
 //!   space-padded, leaving every byte offset untouched;
-//! * otherwise the file is rebuilt into a temporary file and atomically renamed,
-//!   streaming payloads rather than buffering them, so a 130 MB track never lands
-//!   in memory and a crash mid-write cannot destroy the audio.
+//! * otherwise the chunk is grown in place and everything after it is shifted
+//!   forward, in 1 MiB blocks copied back-to-front so overlapping regions stay
+//!   intact. The file keeps its inode, which matters more than it looks: writing
+//!   a temporary file and renaming makes a filesystem watcher report the path as
+//!   deleted and then re-created, and a pipeline reacting to those events will
+//!   try to drop the track from a library and re-import it. `rust-id3` shifts in
+//!   place for the same reason.
 
 use anyhow::{anyhow, Error};
 use std::fs::{File, OpenOptions};
-use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 const HEADER_LEN: u64 = 8;
@@ -119,7 +123,7 @@ pub fn sync_name_chunk(path: impl AsRef<Path>, title: &str) -> Result<bool, Erro
     if new.len() as u32 <= name.size {
         patch_in_place(path, &name, new)?;
     } else {
-        rewrite_with_name(path, &chunks, &name, new)?;
+        grow_name_in_place(path, &name, new)?;
     }
     Ok(true)
 }
@@ -136,78 +140,63 @@ fn patch_in_place(path: &Path, name: &ChunkRef, new: &[u8]) -> Result<(), Error>
     Ok(())
 }
 
-/// Rebuild the container with a longer `NAME`, streaming every other chunk through
-/// byte-for-byte, then atomically rename over the original.
-fn rewrite_with_name(
-    path: &Path,
-    chunks: &[ChunkRef],
-    name: &ChunkRef,
-    new: &[u8],
-) -> Result<(), Error> {
-    let src = File::open(path)?;
-    let mut reader = BufReader::new(src);
+/// Grow the `NAME` chunk in place, shifting everything after it forward.
+///
+/// Deliberately does **not** write a temporary file and rename. A rename gives
+/// the file a new inode, and a filesystem watcher sees that as the old path
+/// disappearing: in this setup it produced an `unlink` followed by an `add`,
+/// which downstream turned into an attempted delete-from-library and then a
+/// re-import of what is really the same file. `rust-id3` has the same
+/// constraint and solves it the same way -- its `PlainStorage` grows the region
+/// and memmoves the following bytes rather than rebuilding the container -- so
+/// matching that behaviour keeps tag writes indistinguishable from the ones
+/// OneTagger already performs.
+///
+/// The cost is atomicity: an interrupted write leaves the file inconsistent.
+/// That is the same exposure every existing OneTagger tag write already carries,
+/// and the audio payload itself is only ever moved, never rewritten in content.
+fn grow_name_in_place(path: &Path, name: &ChunkRef, new: &[u8]) -> Result<(), Error> {
+    let mut file = OpenOptions::new().read(true).write(true).open(path)?;
+    let old_len = file.metadata()?.len();
 
-    let tmp_path = path.with_extension(format!(
-        "{}.1t-tmp",
-        path.extension().and_then(|e| e.to_str()).unwrap_or("aiff")
-    ));
-    let tmp = File::create(&tmp_path)?;
-    let mut writer = BufWriter::new(tmp);
+    let old_payload = name.size as u64 + (name.size as u64 & 1);
+    let new_payload = new.len() as u64 + (new.len() as u64 & 1);
+    let delta = new_payload - old_payload;
 
-    // Recompute the FORM payload size: 4 bytes of form type, plus every chunk at
-    // its new length.
-    let mut form_size: u64 = 4;
-    for c in chunks {
-        form_size += if c.offset == name.offset {
-            HEADER_LEN + new.len() as u64 + (new.len() as u64 & 1)
-        } else {
-            c.total_len()
-        };
-    }
-    if form_size > u32::MAX as u64 {
-        return Err(anyhow!("AIFF would exceed the 4 GiB FORM limit"));
-    }
+    // Everything after the NAME chunk shifts forward by `delta`.
+    let tail_start = name.offset + HEADER_LEN + old_payload;
+    let new_len = old_len + delta;
+    file.set_len(new_len)?;
 
-    let mut form_header = [0u8; 12];
-    reader.seek(SeekFrom::Start(0))?;
-    reader.read_exact(&mut form_header)?;
-    form_header[4..8].copy_from_slice(&(form_size as u32).to_be_bytes());
-    writer.write_all(&form_header)?;
-
-    for c in chunks {
-        if c.offset == name.offset {
-            writer.write_all(NAME)?;
-            writer.write_all(&(new.len() as u32).to_be_bytes())?;
-            writer.write_all(new)?;
-            if new.len() % 2 == 1 {
-                writer.write_all(&[0])?;
-            }
-        } else {
-            // Stream header and payload; SSND can be hundreds of megabytes and
-            // must never be buffered whole.
-            reader.seek(SeekFrom::Start(c.offset))?;
-            let mut chunk_reader = (&mut reader).take(c.total_len());
-            std::io::copy(&mut chunk_reader, &mut writer)?;
-        }
+    // Copy backwards, from the end towards `tail_start`. Forwards would
+    // overwrite bytes that have not been read yet, since source and destination
+    // overlap.
+    let mut buf = vec![0u8; 1 << 20];
+    let mut remaining = old_len - tail_start;
+    while remaining > 0 {
+        let block = remaining.min(buf.len() as u64);
+        let src = tail_start + remaining - block;
+        file.seek(SeekFrom::Start(src))?;
+        file.read_exact(&mut buf[..block as usize])?;
+        file.seek(SeekFrom::Start(src + delta))?;
+        file.write_all(&buf[..block as usize])?;
+        remaining -= block;
     }
 
-    writer.flush()?;
-    writer.get_ref().sync_all()?;
-    drop(writer);
-
-    // Preserve ownership and mode: these files live on a shared NFS dataset where
-    // group-writability is what lets other containers touch them.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Ok(meta) = std::fs::metadata(path) {
-            let _ = std::fs::set_permissions(
-                &tmp_path,
-                std::fs::Permissions::from_mode(meta.permissions().mode()),
-            );
-        }
+    // Now the gap is free: write the new chunk header and payload.
+    file.seek(SeekFrom::Start(name.offset))?;
+    file.write_all(NAME)?;
+    file.write_all(&(new.len() as u32).to_be_bytes())?;
+    file.write_all(new)?;
+    if new.len() % 2 == 1 {
+        file.write_all(&[0])?;
     }
 
-    std::fs::rename(&tmp_path, path)?;
+    // FORM carries the total payload length, so it grows too.
+    let form_size = (new_len - HEADER_LEN) as u32;
+    file.seek(SeekFrom::Start(4))?;
+    file.write_all(&form_size.to_be_bytes())?;
+
+    file.sync_all()?;
     Ok(())
 }
