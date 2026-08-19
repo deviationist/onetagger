@@ -24,6 +24,7 @@ pub mod mp4;
 pub mod vorbis;
 #[cfg(feature = "tag")]
 mod wav;
+pub mod aiff_chunks;
 
 // Supported extensions
 pub static EXTENSIONS : [&'static str; 11] = ["mp3", "flac", "aif", "aiff", "m4a", 
