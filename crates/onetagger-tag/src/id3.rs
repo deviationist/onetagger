@@ -220,7 +220,27 @@ impl TagImpl for ID3Tag {
                     .padding(2048)
                     .write_to_path(&self.tag, path)?;
             },
-            ID3AudioFormat::AIFF => self.tag.write_to_path(path, version)?,
+            ID3AudioFormat::AIFF => {
+                self.tag.write_to_path(path, version)?;
+                // Keep the IFF `NAME` chunk in step with TIT2. rust-id3 only ever
+                // touches the `ID3 ` chunk, so without this the file ends up with
+                // two titles that disagree -- and consumers that prefer `NAME`
+                // (Plex among them) keep serving the stale one through any number
+                // of rescans. Only an existing `NAME` is updated; see the module
+                // docs for why one is never created.
+                if let Some(title) = self.tag.get("TIT2")
+                    .and_then(|f| f.content().text())
+                {
+                    // A failure here must not lose the ID3 write that already
+                    // succeeded, so it is reported and swallowed rather than
+                    // propagated.
+                    match crate::aiff_chunks::sync_name_chunk(path, title) {
+                        Ok(true) => debug!("Synced AIFF NAME chunk to TIT2: {path:?}"),
+                        Ok(false) => {},
+                        Err(e) => warn!("Failed syncing AIFF NAME chunk for {path:?}: {e}"),
+                    }
+                }
+            },
             ID3AudioFormat::WAV => crate::wav::write_wav(path, self.tag.clone(), version)?,
         }
         
