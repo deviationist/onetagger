@@ -243,6 +243,7 @@
 import { scroll, useQuasar } from 'quasar';
 import { Ref, computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { get1t } from '../scripts/onetagger.js';
+import { useUrlState } from '../scripts/urlstate';
 import { CustomTagInfo, QTTrack } from '../scripts/quicktag.js';
 
 import ManualTag from '../components/ManualTag.vue';
@@ -266,9 +267,12 @@ function trackTime(t: any): number {
 }
 const saveDialog = ref(false);
 const noteDialog = ref(false);
-const filter = ref<string | undefined>(undefined);
-const sortDescending = ref(false);
-const sortOption = ref('title');
+const url = useUrlState('quicktag');
+const filter = ref<string | undefined>(url.read('filter'));
+// Deep link: select this track once the list has loaded.
+const pendingUrlTrack = ref<string | undefined>(url.read('track'));
+const sortDescending = ref(url.readBool('desc') ?? false);
+const sortOption = ref(url.read('sort') ?? 'title');
 const failedDialog = ref(false);
 const manualTagPath = ref<string | undefined>(undefined);
 const noArtCacheList = ref<string[]>([])
@@ -314,6 +318,7 @@ function trackClick(track: QTTrack, event: MouseEvent) {
     // Prevent clicking on same track
     if ($1t.quickTag.value.track.isSelected(track)) return;
     selectionCursor = tracks.value.findIndex(t => t.path == track.path);
+    url.write({ track: track.path });
     $1t.loadQTTrack(track);
 }
 
@@ -354,6 +359,7 @@ function onNoteDialogShow() {
 
 // Sort by option
 function sort(option: string) {
+    urlWriteSortSoon();
     if (sortOption.value != option) {
         // reset sort direction
         sortDescending.value = false;
@@ -366,8 +372,17 @@ function sort(option: string) {
     filterTracks();
 }
 
+/// Reflect the sort into the URL after the click handler has mutated it.
+function urlWriteSortSoon() {
+    setTimeout(() => url.write({
+        sort: sortOption.value == 'title' ? undefined : sortOption.value,
+        desc: sortDescending.value
+    }), 0);
+}
+
 /// Filter tracks with search and sorting
 function filterTracks() {
+    url.write({ filter: filter.value });
     let t = (() => {
         let tracks = $1t.quickTag.value.tracks;
 
@@ -595,6 +610,19 @@ onMounted(() => {
                 break
 
             case 'quickTagLoad':
+                // Deep link: ?track= selects that file once the list is loaded.
+                // Must run before the trackIndex restore below, which early-
+                // returns when no index was saved -- the common case for a link
+                // opened in a fresh session.
+                if (pendingUrlTrack.value && $1t.quickTag.value.tracks.length > 0) {
+                    const wanted = pendingUrlTrack.value;
+                    pendingUrlTrack.value = undefined;
+                    const found = $1t.quickTag.value.tracks.find((t: any) => t.path == wanted);
+                    if (found) {
+                        setTimeout(() => $1t.loadQTTrack(found), 50);
+                        break;
+                    }
+                }
                 if ($1t.settings.value.quickTag.trackIndex == -1 || $1t.quickTag.value.tracks.length == 0 || $1t.lock.value.locked) return;
                 // Reload last opened track track
                 setTimeout(() => {
