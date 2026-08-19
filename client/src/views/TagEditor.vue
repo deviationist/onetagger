@@ -126,7 +126,7 @@
             </div>
 
             <div v-if='file' class='q-px-md'>
-                <div class='text-center q-py-md text-subtitle2 text-grey-5 monospace'>{{file.filename}}</div>
+                <div class='text-center q-py-md text-subtitle2 text-grey-5 monospace selectable' title='Select to copy'>{{file.filename}}</div>
                 <div class='q-mt-md'>
                     <div v-for='(tag, i) in Object.keys(file.tags)' :key='i' class='row q-my-sm'>
                         <div class='col-3 text-body2 text-uppercase text-primary text-weight-medium q-mt-sm q-pr-xs' style='text-overflow: ellipsis; overflow: hidden;'>
