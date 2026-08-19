@@ -77,7 +77,20 @@ const $1t = get1t();
 // Guarded to the quicktag route: this component is mounted by App.vue, not by
 // the view, so an unguarded write would put `path` in the Tag Editor's URL too.
 const url = useUrlState('quicktag');
-const path = ref(url.read('path') ?? $1t.settings.value.path);
+// The explorer's location and the selected folder are two different things.
+// This browser lists *directories only* (the backend passes `files: false`),
+// so a folder with no subfolders can be selected -- loading its tracks --
+// without the explorer ever navigating into it: the listing comes back empty
+// and the navigation half is skipped. Persisting a single `path` therefore
+// loses whichever of the two the link actually needed.
+//   path   -> where the explorer is browsing
+//   folder -> the folder whose tracks are loaded (settings.path)
+const urlPath = url.read('path');
+const urlFolder = url.read('folder');
+// Links written before the two were split carried only `path`, which meant
+// the selection; fall back to it so those keep working.
+const urlSelection = urlFolder ?? urlPath;
+const path = ref(urlPath ?? urlFolder ?? $1t.settings.value.path);
 const files = ref<any[]>([]);
 const originalFiles = ref<any[]>([]);
 const filter = ref<string | undefined>(url.read('bfilter'));
@@ -129,19 +142,38 @@ function isSelected(path: string) {
 }
 
 onMounted(() => {
-    // fix path loading
-    path.value = $1t.settings.value.path;
+    // A `path` in the URL is an explicit request for that folder, so it wins.
+    // Adopt it into settings too: the track list is loaded from settings.path,
+    // so leaving it behind would show one folder's subfolders next to another
+    // folder's tracks. Without a URL path, fall back to settings as before.
+    if (urlSelection) {
+        $1t.settings.value.path = urlSelection;
+    } else {
+        path.value = $1t.settings.value.path;
+    }
     // Register events
     $1t.onQuickTagBrowserEvent = (json) => {
         switch (json.action) {
             case 'quickTagFolder':
-                // Load dir
+                // Selecting a folder loads its tracks. This is separate from
+                // navigating into it below, which only happens when the folder
+                // has subfolders to list.
                 if (!initial.value) {
                     $1t.settings.value.path = json.path;
+                    url.write({ folder: json.path });
                     $1t.loadQuickTag();
-                } 
+                } else if (urlSelection) {
+                    // Re-apply the deep-linked selection now rather than only at
+                    // mount: `loadSettings` replaces the whole settings object
+                    // when it arrives over the socket, which would otherwise
+                    // discard a selection written earlier. Idempotent.
+                    $1t.settings.value.path = urlSelection;
+                    $1t.loadQuickTag();
+                }
                 initial.value = false;
-            
+
+                // Nothing to navigate into -- a leaf folder. The selection above
+                // still stands; only the explorer stays where it is.
                 if (json.files.length == 0) return;
                 originalFiles.value = sortBrowserEntries(json.files, sortMode.value, sortDescending.value) as any[];
                 files.value = originalFiles.value;
