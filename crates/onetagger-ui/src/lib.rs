@@ -9,7 +9,10 @@ use anyhow::Error;
 use axum::body::Body;
 use axum::extract::{Query, WebSocketUpgrade, State, Request};
 use axum::http::StatusCode;
-use axum::http::header::CONTENT_TYPE;
+use axum::http::header::{CONTENT_TYPE, ACCEPT_RANGES, CONTENT_RANGE, RANGE};
+use axum::http::HeaderMap;
+use axum::response::Response;
+use std::sync::{Arc, Mutex};
 use axum::response::IntoResponse;
 use axum::Router;
 use axum::routing::get;
@@ -99,27 +102,98 @@ async fn get_thumb(Query(GetQueryPath { path }): Query<GetQueryPath>) -> impl In
     }
 }
 
-/// Serve audio
-async fn get_audio(Query(GetQueryPath { path }): Query<GetQueryPath>) -> impl IntoResponse {
-    let data = tokio::task::spawn_blocking(move || {
-        match AudioSources::from_path(&path).map(|s| s.generate_wav()) {
-            Ok(Ok(wav)) => wav,
-            Ok(Err(e)) => {
-                warn!("Failed generating wav: {e}");
-                vec![]
-            },
-            Err(e) => {
-                warn!("Failed opening audio file {path}: {e}");
-                vec![]
-            }
-        }
-    }).await.unwrap_or(vec![]);
+/// Most recently decoded WAV, keyed by source path.
+///
+/// `generate_wav` decodes the whole file into memory, and a browser seek is a
+/// fresh HTTP Range request for the same path. Without this, every seek would
+/// re-decode the entire file (a 64MB AIFF becomes a 67MB WAV), which is what
+/// made seeking unusable. One entry is enough: the player only ever holds one
+/// track open at a time.
+static AUDIO_CACHE: Mutex<Option<(String, Arc<Vec<u8>>)>> = Mutex::new(None);
 
-    // Empty 404 on error
-    if data.is_empty() {
-        return (StatusCode::NOT_FOUND, [(CONTENT_TYPE, "text/plain")], vec![]);
+/// Parse a single-range `Range: bytes=..` header against a known total size.
+///
+/// Returns an inclusive `(start, end)`. Multi-range requests are not supported
+/// (browsers do not use them for media), and anything unsatisfiable or
+/// malformed returns `None` so the caller can fall back to a full response.
+fn parse_range(header: &str, total: u64) -> Option<(u64, u64)> {
+    let spec = header.trim().strip_prefix("bytes=")?;
+    if spec.contains(',') || total == 0 {
+        return None;
     }
-    (StatusCode::OK, [(CONTENT_TYPE, "audio/wav")], data)
+    let (start, end) = spec.split_once('-')?;
+    let (start, end) = match (start.trim(), end.trim()) {
+        // "bytes=-N" -> the final N bytes
+        ("", n) => (total.checked_sub(n.parse::<u64>().ok()?)?, total - 1),
+        // "bytes=N-" -> from N to the end
+        (n, "") => (n.parse().ok()?, total - 1),
+        (a, b) => (a.parse().ok()?, b.parse::<u64>().ok()?.min(total - 1)),
+    };
+    (start <= end && start < total).then_some((start, end))
+}
+
+/// Serve audio, with Range support so the client-side player can seek.
+async fn get_audio(headers: HeaderMap, Query(GetQueryPath { path }): Query<GetQueryPath>) -> Response {
+    // Reuse the last decode if it is the same file
+    let cached = AUDIO_CACHE.lock().ok()
+        .and_then(|c| c.as_ref().filter(|(p, _)| *p == path).map(|(_, d)| d.clone()));
+
+    let data = match cached {
+        Some(data) => data,
+        None => {
+            let load_path = path.clone();
+            let decoded = tokio::task::spawn_blocking(move || {
+                match AudioSources::from_path(&load_path).map(|s| s.generate_wav()) {
+                    Ok(Ok(wav)) => wav,
+                    Ok(Err(e)) => {
+                        warn!("Failed generating wav: {e}");
+                        vec![]
+                    },
+                    Err(e) => {
+                        warn!("Failed opening audio file {load_path}: {e}");
+                        vec![]
+                    }
+                }
+            }).await.unwrap_or_default();
+
+            // Empty 404 on error
+            if decoded.is_empty() {
+                return (StatusCode::NOT_FOUND, [(CONTENT_TYPE, "text/plain")], Vec::new()).into_response();
+            }
+            let decoded = Arc::new(decoded);
+            if let Ok(mut cache) = AUDIO_CACHE.lock() {
+                *cache = Some((path.clone(), decoded.clone()));
+            }
+            decoded
+        }
+    };
+
+    let total = data.len() as u64;
+    let range = headers.get(RANGE).and_then(|v| v.to_str().ok())
+        .and_then(|h| parse_range(h, total));
+
+    match range {
+        Some((start, end)) => {
+            let body = data[start as usize..=end as usize].to_vec();
+            (
+                StatusCode::PARTIAL_CONTENT,
+                [
+                    (CONTENT_TYPE, "audio/wav".to_string()),
+                    (ACCEPT_RANGES, "bytes".to_string()),
+                    (CONTENT_RANGE, format!("bytes {start}-{end}/{total}")),
+                ],
+                body
+            ).into_response()
+        },
+        None => (
+            StatusCode::OK,
+            [
+                (CONTENT_TYPE, "audio/wav".to_string()),
+                (ACCEPT_RANGES, "bytes".to_string()),
+            ],
+            data.as_ref().clone()
+        ).into_response()
+    }
 }
 
 /// WS connection
