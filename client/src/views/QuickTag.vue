@@ -55,7 +55,7 @@
         </span>
         
         <span class='q-ml-md text-caption cursor-pointer' :style='"margin-left: 13px"' v-if='$1t.quickTag.value.isLimited()' @click='$1t.loadQuickTag(undefined, false)'>
-            Loading was capped to <span class='text-caption monospace text-bold'>500</span> tracks! <span class='q-ml-xs text-weight-medium show-link cursor-pointer'>Show all</span>
+            Loading was capped to <span class='text-caption monospace text-bold'>{{ QUICKTAG_LOAD_LIMIT }}</span> tracks! <span class='q-ml-xs text-weight-medium show-link cursor-pointer'>Show all</span>
         </span>
     </div>
 
@@ -244,7 +244,7 @@ import { scroll, useQuasar } from 'quasar';
 import { Ref, computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { get1t } from '../scripts/onetagger.js';
 import { useUrlState } from '../scripts/urlstate';
-import { CustomTagInfo, QTTrack } from '../scripts/quicktag.js';
+import { CustomTagInfo, QTTrack, QUICKTAG_LOAD_LIMIT } from '../scripts/quicktag.js';
 
 import ManualTag from '../components/ManualTag.vue';
 import QuickTagTile from '../components/QuickTagTile.vue';
