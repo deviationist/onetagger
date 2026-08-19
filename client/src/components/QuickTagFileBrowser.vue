@@ -71,16 +71,20 @@ import { onMounted, ref } from 'vue';
 import { get1t } from '../scripts/onetagger.js';
 import { sortBrowserEntries, BROWSER_SORT_OPTIONS, sortDirectionLabel, migrateBrowserSort } from '../scripts/browsersort';
 import type { BrowserSort } from '../scripts/browsersort';
+import { useUrlState } from '../scripts/urlstate';
 
 const $1t = get1t();
-const path = ref($1t.settings.value.path);
+// Guarded to the quicktag route: this component is mounted by App.vue, not by
+// the view, so an unguarded write would put `path` in the Tag Editor's URL too.
+const url = useUrlState('quicktag');
+const path = ref(url.read('path') ?? $1t.settings.value.path);
 const files = ref<any[]>([]);
 const originalFiles = ref<any[]>([]);
-const filter = ref<string | undefined>(undefined);
+const filter = ref<string | undefined>(url.read('bfilter'));
 const initial = ref(true);
 const editPath = ref(false);
-const sortMode = ref<BrowserSort>(migrateBrowserSort($1t.settings.value.quickTag.browserSort));
-const sortDescending = ref<boolean>($1t.settings.value.quickTag.browserSortDescending === true);
+const sortMode = ref<BrowserSort>(migrateBrowserSort(url.read('bsort') ?? $1t.settings.value.quickTag.browserSort));
+const sortDescending = ref<boolean>(url.readBool('bdesc') ?? ($1t.settings.value.quickTag.browserSortDescending === true));
 
 /// Re-sort what is already loaded; no round trip to the backend needed.
 function resort() {
@@ -91,6 +95,7 @@ function resort() {
 function onSortChange() {
     $1t.settings.value.quickTag.browserSort = sortMode.value;
     $1t.saveSettings(false);
+    url.write({ bsort: sortMode.value == 'name' ? undefined : sortMode.value });
     resort();
 }
 
@@ -98,6 +103,7 @@ function toggleSortDirection() {
     sortDescending.value = !sortDescending.value;
     $1t.settings.value.quickTag.browserSortDescending = sortDescending.value;
     $1t.saveSettings(false);
+    url.write({ bdesc: sortDescending.value });
     resort();
 }
 
@@ -110,6 +116,7 @@ function browse() {
 }
 
 function applyFilter() {
+    url.write({ bfilter: filter.value });
     if (!filter.value || filter.value.trim().length == 0) {
         files.value = originalFiles.value;
         return;
@@ -139,6 +146,7 @@ onMounted(() => {
                 originalFiles.value = sortBrowserEntries(json.files, sortMode.value, sortDescending.value) as any[];
                 files.value = originalFiles.value;
                 path.value = json.path;
+                url.write({ path: json.path });
                 break;
             case 'pathUpdate':
                 initial.value = true;
