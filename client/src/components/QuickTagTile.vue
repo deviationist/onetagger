@@ -22,6 +22,16 @@
                 <div class='col-4 q-pl-sm'>
                     <span class='text-subtitle2 text-grey-4 text-weight-medium text-no-wrap title-span qt-tile-main'>{{track.title}}</span>
                     <span class='text-subtitle2 text-grey-6 text-weight-medium text-no-wrap title-span'>{{track.artists.join(", ")}}</span>
+                    <!-- Library search results span folders, so the folder is
+                         what tells two same-titled hits apart. Only shown then;
+                         in a folder listing it would be the same value on every
+                         row. Ellipsised from the left: the deepest folder is the
+                         identifying part. -->
+                    <span
+                        v-if='$1t.quickTag.value.searchQuery !== undefined'
+                        class='text-caption text-grey-7 text-no-wrap title-span qt-tile-folder'
+                        :title='track.path'
+                    >{{folder}}</span>
                 </div>
                 <!-- Details -->
                 <div class='col-7 row text-center text-subtitle2 text-weight-medium items-center'>
@@ -163,6 +173,20 @@ function removeCustom(tag: CustomTagInfo) {
 
 
 /// If selected, use selected track, else input track
+/// Folder holding this track, relative to the library root when it sits under
+/// it. Falls back to the absolute parent so a track outside the root still
+/// reads sensibly.
+const folder = computed(() => {
+    let p = track.value.path.replace(/\\/g, '/');
+    let dir = p.slice(0, p.lastIndexOf('/'));
+    let root = ($1t.libraryRoot.value ?? '').replace(/\\/g, '/').replace(/\/$/, '');
+    if (root && dir.startsWith(root)) {
+        let rel = dir.slice(root.length).replace(/^\//, '');
+        return rel.length > 0 ? rel : '.';
+    }
+    return dir;
+});
+
 const track = computed(() => {
     let track = $1t.quickTag.value.track.getTrack(inputTrack.value.path);
     if (!track) track = inputTrack.value;
@@ -209,6 +233,14 @@ const art = computed(() => `${httpUrl()}/thumb?path=${encodeURIComponent(track.v
 
 .qt-tile:hover {
     background: #1A1A1A;
+}
+
+.qt-tile-folder {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    direction: rtl;
+    text-align: left;
 }
 
 .title-span {

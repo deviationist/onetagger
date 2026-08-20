@@ -9,10 +9,22 @@
                 :label-slot="true"
                 class='q-pl-md qt-search-bar'
                 filled
-                @update:model-value='filterTracks()'
+                @update:model-value='onFilterInput()'
             >
                 <template v-slot:label>
                     <q-icon name="mdi-magnify" size="xs" class='q-pl-xs'></q-icon>
+                </template>
+                <template v-slot:append>
+                    <q-btn-toggle
+                        :model-value='scope'
+                        @update:model-value='setScope'
+                        dense unelevated no-caps size='sm'
+                        toggle-color='primary'
+                        text-color='grey-5'
+                        :options="[{label: 'Folder', value: 'folder'}, {label: 'Library', value: 'library'}]"
+                    >
+                        <q-tooltip>Folder filters loaded tracks; Library searches every file under the root</q-tooltip>
+                    </q-btn-toggle>
                 </template>
             </q-input>
         </div>
@@ -45,7 +57,15 @@
     </div>
 
     <!-- Stats -->
-    <div class='q-mx-lg text-grey-7 q-my-xs text-caption text-center'>
+    <div class='q-mx-lg text-grey-7 q-my-xs text-caption text-center' v-if='$1t.quickTag.value.searchQuery !== undefined'>
+        Library results: <span class='monospace text-bold'>{{$1t.quickTag.value.tracks.length}}</span>
+        <span class='q-ml-sm'>for</span> <span class='monospace text-bold'>{{$1t.quickTag.value.searchQuery}}</span>
+        <span v-if='$1t.quickTag.value.searchTruncated' class='q-ml-md'>
+            capped at <span class='monospace text-bold'>{{ SEARCH_LIMIT }}</span> &mdash; narrow the search
+        </span>
+        <span class='q-ml-md text-weight-medium show-link cursor-pointer' @click='backToFolder()'>&larr; back to folder</span>
+    </div>
+    <div class='q-mx-lg text-grey-7 q-my-xs text-caption text-center' v-else>
         Loaded files: <span class='monospace text-bold'>{{$1t.quickTag.value.tracks.length}}</span>
         <span class='q-ml-md'>Filtered: </span><span class='monospace text-bold'>{{tracks.length}}</span>
         <span v-if='$1t.quickTag.value.failed.length != 0'><span class='q-ml-md'>Failed to load: </span>
@@ -244,7 +264,7 @@ import { scroll, useQuasar } from 'quasar';
 import { Ref, computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { get1t } from '../scripts/onetagger.js';
 import { useUrlState } from '../scripts/urlstate';
-import { CustomTagInfo, QTTrack, QUICKTAG_LOAD_LIMIT } from '../scripts/quicktag.js';
+import { CustomTagInfo, QTTrack, QUICKTAG_LOAD_LIMIT, SEARCH_LIMIT } from '../scripts/quicktag.js';
 
 import ManualTag from '../components/ManualTag.vue';
 import QuickTagTile from '../components/QuickTagTile.vue';
@@ -269,6 +289,16 @@ const saveDialog = ref(false);
 const noteDialog = ref(false);
 const url = useUrlState('quicktag');
 const filter = ref<string | undefined>(url.read('filter'));
+// 'folder' filters the tracks already loaded (instant, client side); 'library'
+// turns the same box into a query answered by the backend. Kept as two explicit
+// modes rather than escalating automatically: narrowing a set you have and
+// fetching a new one are different operations, and silently switching between
+// them makes the box unpredictable.
+const scope = ref<'folder' | 'library'>(url.read('scope') == 'library' ? 'library' : 'folder');
+// Folder to return to when leaving library mode. settings.path still points at
+// it -- library results are not a folder -- so this is only for the label.
+const folderBeforeSearch = ref<string | undefined>(undefined);
+let searchDebounce: any = undefined;
 // Deep link: select this track once the list has loaded.
 const pendingUrlTrack = ref<string | undefined>(url.read('track'));
 const sortDescending = ref(url.readBool('desc') ?? false);
@@ -380,13 +410,64 @@ function urlWriteSortSoon() {
     }), 0);
 }
 
+/// Run the search box. In library scope the text is a query for the backend;
+/// in folder scope it filters what is already loaded, exactly as before.
+function onFilterInput() {
+    url.write({ filter: filter.value });
+    if (scope.value == 'library') {
+        clearTimeout(searchDebounce);
+        // The walk is cheap but each hit costs a tag read, so do not fire per
+        // keystroke.
+        searchDebounce = setTimeout(() => runLibrarySearch(), 350);
+        return;
+    }
+    filterTracks();
+}
+
+/// Issue a library search, or restore the folder when the box is emptied.
+function runLibrarySearch() {
+    let q = (filter.value ?? '').trim();
+    if (!q) {
+        $1t.quickTag.value.searchQuery = undefined;
+        $1t.loadQuickTag();
+        return;
+    }
+    $1t.searchQuickTag(q);
+}
+
+/// Switch between filtering the folder and searching the library.
+function setScope(v: 'folder' | 'library') {
+    scope.value = v;
+    // Default scope leaves no param behind, matching how `bsort` is written.
+    url.write({ scope: v == 'library' ? 'library' : undefined });
+    if (v == 'library') {
+        folderBeforeSearch.value = $1t.settings.value.path;
+        runLibrarySearch();
+    } else {
+        // Leaving library mode: drop the results and reload the folder.
+        $1t.quickTag.value.searchQuery = undefined;
+        clearTimeout(searchDebounce);
+        $1t.loadQuickTag();
+    }
+}
+
+/// Leave library results and go back to the folder that was open.
+function backToFolder() {
+    filter.value = undefined;
+    url.write({ filter: undefined });
+    setScope('folder');
+}
+
 /// Filter tracks with search and sorting
 function filterTracks() {
-    url.write({ filter: filter.value });
+    // In library scope the backend has already narrowed the set; filtering it
+    // again by the same string would be a no-op at best and would hide hits
+    // matched on their folder rather than their tags at worst.
+    let inLibrary = $1t.quickTag.value.searchQuery !== undefined;
     let t = (() => {
         let tracks = $1t.quickTag.value.tracks;
 
-        if (filter.value) {
+        if (filter.value && !inLibrary) {
             let newFilter = filter.value.toLowerCase();
             // title, artist or track or tags
             tracks = $1t.quickTag.value.tracks.filter((t) => 
@@ -538,6 +619,17 @@ window.addEventListener('resize', resizeListener);
 let tracks: Ref<QTTrack[]> = ref([]);
 watch(() => $1t.quickTag.value.tracks, () => filterTracks());
 
+// The view can mount before the socket's `init` arrives, and `init` is what
+// supplies libraryRoot. A restored ?scope=library link would then resolve no
+// root and silently do nothing, so re-issue once the app reports ready.
+watch(() => $1t.info.value.ready, (ready) => {
+    if (!ready) return;
+    if (scope.value != 'library') return;
+    if (!(filter.value ?? '').trim()) return;
+    if ($1t.quickTag.value.searchQuery !== undefined) return;
+    runLibrarySearch();
+});
+
 /// Index of track for selection cursor
 let selectionCursor = -1;
 let selectionDirection = 0;
@@ -609,6 +701,12 @@ onMounted(() => {
             case 'focusSearch':
                 break
 
+            case 'quickTagSearch':
+                // Results arrived; re-run sorting so the list obeys the current
+                // sort option, exactly as a folder load does.
+                filterTracks();
+                break;
+
             case 'quickTagLoad':
                 // Deep link: ?track= selects that file once the list is loaded.
                 // Must run before the trackIndex restore below, which early-
@@ -677,8 +775,17 @@ onMounted(() => {
     sortOption.value = $1t.settings.value.quickTag.sortOption||'title';
     sortDescending.value = $1t.settings.value.quickTag.sortDescending === true;
 
-    // Load tracks if path available
-    $1t.loadQuickTag();
+    // Load tracks if path available. A restored `scope=library` link searches
+    // instead -- and must re-issue once settings have arrived over the socket,
+    // not only here: `loadSettings` replaces the whole settings object, which
+    // would otherwise land after this and reload the folder over the results.
+    // Same hazard the file browser works around for its deep-linked selection.
+    if (scope.value == 'library' && (filter.value ?? '').trim()) {
+        folderBeforeSearch.value = $1t.settings.value.path;
+        runLibrarySearch();
+    } else {
+        $1t.loadQuickTag();
+    }
 });
 
 onUnmounted(() => {
