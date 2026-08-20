@@ -25,6 +25,10 @@ use onetagger_playlist::{UIPlaylist, PLAYLIST_EXTENSIONS, get_files_from_playlis
 /// ~2.2KB/file, so this bound is ~2.3MB of JSON. Album art is NOT included
 /// (it is fetched lazily per row), which is what makes the bound cheap.
 pub const QUICKTAG_LOAD_LIMIT: usize = 1000;
+/// Cap on library-search results. Matching is cheap, but every Quick Tag hit
+/// costs a tag read (~90ms over NFS), so an unbounded query on a broad term
+/// would stall the socket for minutes.
+pub const SEARCH_LIMIT: usize = 500;
 
 use crate::StartContext;
 use crate::quicktag::{QuickTag, QuickTagFile, QuickTagData};
@@ -68,12 +72,18 @@ enum Action {
     QuickTagLoad { path: Option<String>, playlist: Option<UIPlaylist>, recursive: Option<bool>, separators: TagSeparators, limit: Option<bool> },
     QuickTagSave { changes: TagChanges },
     QuickTagFolder { path: Option<String>, subdir: Option<String> },
+    /// Library-wide search by path/filename. Separate from QuickTagFolder
+    /// because it returns loaded tracks, not a directory listing.
+    QuickTagSearch { query: String, path: Option<String>, separators: TagSeparators, limit: Option<usize> },
 
     #[serde(rename_all = "camelCase")]
     SpotifyAuthorize { client_id: String, client_secret: String },
     SpotifyAuthorized,
 
     TagEditorFolder { path: Option<String>, subdir: Option<String>, recursive: Option<bool>  },
+    /// Library-wide search by path/filename. Returns bare entries -- the Tag
+    /// Editor's result rows show path and filename only, so no tags are read.
+    TagEditorSearch { query: String, path: Option<String>, limit: Option<usize> },
     TagEditorLoad { path: PathBuf },
     TagEditorSave { changes: TagChanges },
 
@@ -478,6 +488,19 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
                 "path": new_path,
             })).await.ok();
         }
+        // Library-wide search. Only matched paths are tag-read.
+        Action::QuickTagSearch { query, path, separators, limit } => {
+            let root = path.map(PathBuf::from).unwrap_or_default();
+            let entries = FileBrowser::search(&root, &query, limit.unwrap_or(SEARCH_LIMIT))?;
+            let truncated = entries.len() >= limit.unwrap_or(SEARCH_LIMIT);
+            let data = QuickTag::load_files(entries.into_iter().map(|e| e.path).collect(), &separators)?;
+            send_socket(websocket, json!({
+                "action": "quickTagSearch",
+                "data": data,
+                "query": query,
+                "truncated": truncated
+            })).await.ok();
+        },
         Action::SpotifyAuthorize { client_id, client_secret } => {
             // Authorize cached
             if let Some(spotify) = Spotify::try_cached_token(&client_id, &client_secret) {
@@ -513,6 +536,18 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
                 "path": new_path,
                 // Stateless
                 "recursive": recursive
+            })).await.ok();
+        },
+        // Library-wide search; no tags read, so this stays close to walk cost.
+        Action::TagEditorSearch { query, path, limit } => {
+            let root = path.map(PathBuf::from).unwrap_or_default();
+            let files = FileBrowser::search(&root, &query, limit.unwrap_or(SEARCH_LIMIT))?;
+            let truncated = files.len() >= limit.unwrap_or(SEARCH_LIMIT);
+            send_socket(websocket, json!({
+                "action": "tagEditorSearch",
+                "files": files,
+                "query": query,
+                "truncated": truncated
             })).await.ok();
         },
         // Load tags of file

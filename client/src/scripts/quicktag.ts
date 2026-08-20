@@ -6,11 +6,20 @@ import { get1t } from "./onetagger";
 /// Must match QUICKTAG_LOAD_LIMIT in crates/onetagger-ui/src/socket.rs
 export const QUICKTAG_LOAD_LIMIT = 1000;
 
+/// Must match SEARCH_LIMIT in crates/onetagger-ui/src/socket.rs
+export const SEARCH_LIMIT = 500;
+
 class QuickTag { 
     tracks: QTTrack[] = [];
     track: QTMultiTrack = new QTMultiTrack();
     failed: QuickTagFailed[] = [];
     wasLimited = false;
+
+    /// Library-search state. `query` is undefined whenever the view is showing
+    /// an ordinary folder, so it doubles as the "are we in library mode" flag
+    /// for anything that only has the store to go on.
+    searchQuery?: string;
+    searchTruncated = false;
 
     /// Number of tracks to save
     saving: number = 0;

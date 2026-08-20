@@ -17,10 +17,35 @@
             <div class='q-mt-sm'>
 
                 <!-- Filter -->
-                <q-input dense filled label='Filter' class='q-mb-sm' @update:model-value='(v: any) => applyFilter(v as string)' v-model='filter'></q-input>
+                <q-input dense filled label='Filter' class='q-mb-sm' @update:model-value='(v: any) => applyFilter(v as string)' v-model='filter'>
+                    <template v-slot:append>
+                        <q-btn-toggle
+                            :model-value='scope'
+                            @update:model-value='setScope'
+                            dense unelevated no-caps size='sm'
+                            toggle-color='primary'
+                            text-color='grey-5'
+                            :options="[{label: 'Folder', value: 'folder'}, {label: 'Library', value: 'library'}]"
+                        >
+                            <q-tooltip>Folder filters this directory; Library searches every file under the root</q-tooltip>
+                        </q-btn-toggle>
+                    </template>
+                </q-input>
+
+                <!-- Library results header. Replaces the sort row and the
+                     parent link, neither of which means anything for a result
+                     set that spans folders. -->
+                <div v-if='searchQuery !== undefined' class='q-mb-sm'>
+                    <div class='text-caption text-grey-5'>
+                        <span class='monospace text-bold'>{{files.length}}</span> results for
+                        <span class='monospace text-bold'>{{searchQuery}}</span>
+                    </div>
+                    <div v-if='searchTruncated' class='text-caption text-grey-7'>capped &mdash; narrow the search</div>
+                    <div class='clickable text-caption text-primary q-mt-xs' @click='backToFolder()'>&larr; back to folder</div>
+                </div>
 
                 <!-- Sort -->
-                <div class='row items-center q-mb-sm no-wrap'>
+                <div class='row items-center q-mb-sm no-wrap' v-if='searchQuery === undefined'>
                     <q-btn-toggle
                         v-model='sortMode'
                         @update:model-value='onSortChange'
@@ -40,7 +65,7 @@
                 </div>
 
                 <!-- Parent -->
-                <div class='q-mb-sm clickable te-file' @click='loadFiles("..")'>
+                <div class='q-mb-sm clickable te-file' v-if='searchQuery === undefined' @click='loadFiles("..")'>
                     <q-icon size='xs' class='q-mb-xs text-grey-4' name='mdi-folder-upload'></q-icon>
                     <span class='q-ml-sm text-caption text-grey-4'>Parent folder</span>
                 </div>
@@ -61,7 +86,14 @@
                             <q-icon size='xs' class='q-mb-xs text-grey-4' v-if='!file.dir && !file.playlist' name='mdi-music'></q-icon>
                             <q-icon size='xs' class='q-mb-xs text-grey-4' v-if='file.dir' name='mdi-folder'></q-icon>
                             <q-icon size='xs' class='q-mb-xs text-grey-4' v-if='file.playlist' name='mdi-playlist-music'></q-icon>
-                            <span class='q-ml-sm text-caption'>{{file.filename}}</span>
+                            <span class='q-ml-sm text-caption' v-if='searchQuery === undefined'>{{file.filename}}</span>
+                            <!-- Result rows carry the folder as a second line:
+                                 the filename alone does not say which of several
+                                 same-named files this is. -->
+                            <span class='q-ml-sm text-caption te-result' v-else :title='file.path'>
+                                <span class='te-result-path'>{{resultFolder(file.path)}}</span>
+                                <span class='te-result-name'>{{file.filename}}</span>
+                            </span>
                         </div>
                     </template>
 
@@ -402,6 +434,12 @@ const files = ref<any[]>([]);
 const originalFiles = ref<any[]>([]);
 const file = ref<any>(undefined);
 const filter = ref<any>(url.read('filter'));
+// See the Quick Tag view for why these are two explicit modes rather than one
+// box that escalates on its own.
+const scope = ref<'folder' | 'library'>(url.read('scope') == 'library' ? 'library' : 'folder');
+const searchQuery = ref<string | undefined>(undefined);
+const searchTruncated = ref(false);
+let searchDebounce: any = undefined;
 const changes = ref<any[]>([]);
 const newTag = ref<any>(undefined);
 const albumArt = ref<any>(undefined);
@@ -464,14 +502,70 @@ function toggleSortDirection() {
     resort();
 }
 
-function applyFilter(v: string) {
-    filter.value = v;
-    url.write({ filter: v });
+/// Client-side filtering of the loaded directory. Kept separate from
+/// applyFilter so the folder-load handler can use it without re-entering the
+/// library branch -- going through applyFilter there loops: folder load ->
+/// schedule search -> empty query -> folder load.
+function applyFolderFilter() {
     if (!filter.value || filter.value.trim().length == 0) {
         files.value = originalFiles.value;
         return;
     }
-    files.value = originalFiles.value.filter(f => f.filename.toLowerCase().includes(filter.value));
+    files.value = originalFiles.value.filter(f => f.filename.toLowerCase().includes(filter.value.toLowerCase()));
+}
+
+function applyFilter(v: string) {
+    filter.value = v;
+    url.write({ filter: v });
+    if (scope.value == 'library') {
+        clearTimeout(searchDebounce);
+        searchDebounce = setTimeout(() => runLibrarySearch(), 350);
+        return;
+    }
+    applyFolderFilter();
+}
+
+/// Issue a library search, or restore the folder listing when emptied.
+function runLibrarySearch() {
+    let q = (filter.value ?? '').trim();
+    if (!q) {
+        searchQuery.value = undefined;
+        loadFiles();
+        return;
+    }
+    $1t.searchTagEditor(q, path.value);
+}
+
+function setScope(v: 'folder' | 'library') {
+    scope.value = v;
+    url.write({ scope: v == 'library' ? 'library' : undefined });
+    if (v == 'library') {
+        runLibrarySearch();
+    } else {
+        clearTimeout(searchDebounce);
+        searchQuery.value = undefined;
+        files.value = originalFiles.value;
+        loadFiles();
+    }
+}
+
+function backToFolder() {
+    filter.value = undefined;
+    url.write({ filter: undefined });
+    setScope('folder');
+}
+
+/// Folder holding a result, relative to the library root. Shown as the first
+/// of the two lines on a result row.
+function resultFolder(p: string): string {
+    let norm = (p ?? '').replace(/\\/g, '/');
+    let dir = norm.slice(0, norm.lastIndexOf('/'));
+    let root = ($1t.libraryRoot.value ?? '').replace(/\\/g, '/').replace(/\/$/, '');
+    if (root && dir.startsWith(root)) {
+        let rel = dir.slice(root.length).replace(/^\//, '');
+        return rel.length > 0 ? rel : '.';
+    }
+    return dir;
 }
 
 
@@ -756,7 +850,10 @@ function wsCallback(e: any) {
                 url.write({ path: e.path });
                 // Dirs first, then per the user's chosen sort mode
                 originalFiles.value = sortBrowserEntries(e.files, sortMode.value, sortDescending.value) as any[];
-                applyFilter(filter.value);
+                // A directory listing is not a result set.
+                searchQuery.value = undefined;
+                searchTruncated.value = false;
+                applyFolderFilter();
                 // Deep link: open the requested file once the folder holding it
                 // has loaded. Guarded so navigating away later doesn't reopen it.
                 if (pendingUrlFile.value) {
@@ -812,9 +909,21 @@ const POPMLabel = computed(() => {
 });
 
 // Register callback
+// Library search results replace the explorer listing.
+$1t.onTagEditorSearchEvent = (json: any) => {
+    searchQuery.value = json.query;
+    searchTruncated.value = json.truncated;
+    files.value = json.files;
+};
+
 onMounted(() => {
     $1t.onTagEditorEvent = wsCallback;
-    loadFiles();
+    // A restored ?scope=library link searches rather than listing a folder.
+    if (scope.value == 'library' && (filter.value ?? '').trim()) {
+        runLibrarySearch();
+    } else {
+        loadFiles();
+    }
 
     // Load QT track
     if ($1t.quickTag.value.toTagEditor) {
@@ -833,6 +942,33 @@ onDeactivated(() => {
 </script>
 
 <style>
+.te-result {
+    display: inline-block;
+    max-width: calc(100% - 24px);
+    vertical-align: top;
+}
+
+/* Path first, dimmer: it is context, the filename is the identity. Ellipsised
+   from the left so the deepest folder survives truncation. */
+.te-result-path {
+    display: block;
+    font-size: 0.7rem;
+    line-height: 1.1;
+    opacity: 0.55;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    direction: rtl;
+    text-align: left;
+}
+
+.te-result-name {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .te-file {
     padding: 2px;
     padding-left: 4px;

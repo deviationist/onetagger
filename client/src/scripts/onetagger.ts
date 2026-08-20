@@ -27,6 +27,10 @@ class OneTagger {
     taggerStatus: Ref<TaggerStatus> = ref(new TaggerStatus());
     autoTaggerPlaylist: Ref<Playlist> = ref({});
     manualTag: Ref<ManualTag> = ref(new ManualTag());
+    /// Root a library search walks from, taken from the server's start path
+    /// (--path / ONETAGGER_PATH). Undefined when the server was started without
+    /// one, in which case callers fall back to the current folder.
+    libraryRoot: Ref<string | undefined> = ref(undefined);
 
     // Websocket
     private ws!: WebSocket;
@@ -102,6 +106,7 @@ class OneTagger {
     onTaggingDone(_: any) {}
     onQuickTagEvent(_: any, __?: any) {}
     onQuickTagBrowserEvent(_: any) {}
+    onTagEditorSearchEvent(_: any) {}
     onTagEditorEvent(_: any) {}
     onAudioFeaturesEvent(_: any) {}
     onRenamerEvent(_: any) {}
@@ -147,6 +152,10 @@ class OneTagger {
                 if (json.startContext.startPath) {
                     this.settings.value.path = json.startContext.startPath;
                     this.config.value.path = json.startContext.startPath;
+                    // The root a library search walks from. Kept apart from
+                    // settings.path (moves as you browse) and config.path (the
+                    // Autotagger's, reassigned by its own browse dialogs).
+                    this.libraryRoot.value = json.startContext.startPath;
                 }
 
                 this.info.value.ready = true;
@@ -243,6 +252,11 @@ class OneTagger {
                 this.lock.value.locked = false;
                 this.quickTag.value.tracks = json.data.files.map((t: QuickTagFile) => new QTTrack(t, this.settings.value.quickTag));
                 this.quickTag.value.failed = json.data.failed;
+                // A folder load is by definition not search results -- clear the
+                // flag so the status line stops claiming otherwise (e.g. after
+                // picking a folder in the browser while library scope is on).
+                this.quickTag.value.searchQuery = undefined;
+                this.quickTag.value.searchTruncated = false;
                 this.onQuickTagEvent('quickTagLoad');
                 break;
             /*eslint-disable no-case-declarations*/
@@ -256,6 +270,20 @@ class OneTagger {
                 this.quickTag.value.saving -= 1;
                 this.onQuickTagEvent('quickTagSaved');
 
+                break;
+            // Library search results replace the track list wholesale.
+            case 'quickTagSearch':
+                this.lock.value.locked = false;
+                this.quickTag.value.tracks = json.data.files.map((t: QuickTagFile) => new QTTrack(t, this.settings.value.quickTag));
+                this.quickTag.value.failed = json.data.failed;
+                this.quickTag.value.searchQuery = json.query;
+                this.quickTag.value.searchTruncated = json.truncated;
+                // Not a capped folder load; the cap notice must not appear.
+                this.quickTag.value.wasLimited = false;
+                this.onQuickTagEvent('quickTagSearch');
+                break;
+            case 'tagEditorSearch':
+                this.onTagEditorSearchEvent(json);
                 break;
             // Browser folder
             case 'quickTagFolder':
@@ -611,6 +639,34 @@ class OneTagger {
             // Save limit info
             this.quickTag.value.wasLimited = limit;
         }
+    }
+
+    /// Root for a library-wide search: the server's start path when it has
+    /// one, else wherever the view is currently pointed.
+    searchRoot(fallback?: string): string | undefined {
+        return this.libraryRoot.value ?? fallback ?? this.settings.value.path;
+    }
+
+    /// Search the library and replace the Quick Tag track list with the hits.
+    /// Matched paths are tag-read server side, so this is slower than the Tag
+    /// Editor's equivalent and is why the result count is capped.
+    searchQuickTag(query: string) {
+        let path = this.searchRoot();
+        if (!path || !query.trim()) return;
+        this.lock.value.locked = true;
+        this.send('quickTagSearch', {
+            query,
+            path,
+            separators: this.settings.value.quickTag.separators
+        });
+    }
+
+    /// Search the library for the Tag Editor. Returns bare entries -- no tags
+    /// are read, so this stays close to the cost of the directory walk.
+    searchTagEditor(query: string, fallbackPath?: string) {
+        let path = this.searchRoot(fallbackPath);
+        if (!path || !query.trim()) return;
+        this.send('tagEditorSearch', { query, path });
     }
 
     /// Stop the tagging process
