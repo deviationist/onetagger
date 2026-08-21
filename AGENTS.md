@@ -59,9 +59,8 @@ and the merge succeeding says nothing about that.
 
 ## Build and deploy
 
-Builds and deploys run **on quim**. Neither quim nor xavi has a host Rust
-toolchain — the toolchain comes from the `rust:1-bookworm` builder stage in the
-`Dockerfile`, so only Docker is required.
+No host Rust toolchain is required — it comes from the `rust:1-bookworm`
+builder stage in the `Dockerfile`, so Docker alone is enough.
 
 ```sh
 cd ~/code/onetagger
@@ -83,17 +82,16 @@ cd client && npx -y pnpm@8 run build && cd ..
 #    build recompiles the workspace from scratch)
 docker build -t onetagger-local .
 
-# 4. Tag with BOTH the moving tag and the commit it was built from
+# 4. Tag with BOTH the moving tag your deployment references and the commit
+#    it was built from -- the latter is the rollback point and the only thing
+#    tying a running container back to a commit.
 SHA=$(git rev-parse --short HEAD)
-docker tag onetagger-local:latest registry.ichiva.no/onetagger:homelab
-docker tag onetagger-local:latest "registry.ichiva.no/onetagger:$SHA"
-docker push registry.ichiva.no/onetagger:homelab
-docker push "registry.ichiva.no/onetagger:$SHA"
-
-# 5. Deploy. onetagger-daemon shares the image -- both stacks need it.
-cd ~/docker-root/onetagger        && docker compose up -d
-cd ~/docker-root/onetagger-daemon && docker compose up -d
+docker tag onetagger-local:latest <registry>/onetagger:<moving-tag>
+docker tag onetagger-local:latest "<registry>/onetagger:$SHA"
 ```
+
+Deployment itself is environment-specific and documented where the compose
+files live, not here.
 
 ### No edits mid-build
 
@@ -104,15 +102,14 @@ invalidates anyway, so nothing is saved by letting it finish.
 
 ### Image tags must not drift from git
 
-`:homelab` is what `docker-compose.yml` references, so it decides what a
+The moving tag is what a compose file references, so it decides what a
 `docker compose up -d` actually runs — including an unrelated one months later.
-Always push the `:<sha>` tag beside it: it is the rollback point, and it is the
-only thing that ties a running container back to a commit.
+Always push the `:<sha>` tag beside it.
 
-This has already gone wrong once: `:homelab` sat ~8 hours behind a locally-built
-image that was actually running, so any `up -d` would have silently rolled the
-service back. (`docker compose restart`, which `nfs-compose-recover` uses, reuses
-the existing container and does not have this effect.)
+This has already gone wrong once: the moving tag sat ~8 hours behind a
+locally-built image that was actually running, so any `up -d` would have
+silently rolled the service back. (`docker compose restart` reuses the existing
+container and does not have this effect.)
 
 ## Verifying a deploy
 
@@ -163,10 +160,11 @@ What follows from that:
 
 ## Where state lives
 
-- **Platform credentials** (Discogs token, etc.) are in
-  `~/docker-root/onetagger/data/config/onetagger/{settings,auto-tag}.json` on
-  quim. They are outside git by design, so a git-based restore does **not**
-  bring them back. Back them up separately.
+- **Platform credentials** (Discogs token, etc.) live in OneTagger's config
+  directory, never in this repo. A git-based restore does **not** bring them
+  back — back them up separately. Note the GUI and a headless `--config`
+  invocation can read *different* files, so a rotated token must be updated in
+  each.
 - **`client/dist`** is generated. `onetagger-ui` embeds it at compile time via
   `include_dir!`, so the crate cannot build without it — which is why step 2
   above is also a prerequisite for any local `cargo` work.
