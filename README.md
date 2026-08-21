@@ -4,15 +4,21 @@
 <h1 align='center'>The ultimate cross-platform tagger for DJs</h1>
 
 <h3 align='center'><b>
-<a href='https://onetagger.github.io/'>Website</a> | <a href='https://github.com/Marekkon5/onetagger/releases/'>Latest Release</a>
+A fork of <a href='https://github.com/Marekkon5/onetagger'>Marekkon5/onetagger</a> &mdash; see <a href='#what-this-fork-adds'>what this fork adds</a>
 </b></h3>
+
+<h3 align='center'>
+<a href='https://onetagger.github.io/'>Upstream website</a> | <a href='https://github.com/Marekkon5/onetagger/releases/'>Upstream releases</a>
+</h3>
 <br>
 
 <p align='center'>
-    <img alt='Version Badge' src='https://img.shields.io/github/v/release/marekkon5/onetagger?label=Latest%20Release'>
     <img alt='Supported OS' src='https://img.shields.io/badge/OS-Windows%2C%20Mac%20OS%2C%20Linux-orange'>
-    <img alt='Build Status' src='https://img.shields.io/github/actions/workflow/status/marekkon5/onetagger/build.yml?branch=master'>
 </p>
+
+> This fork publishes no binaries of its own &mdash; build it yourself, or run the
+> [Docker image](#docker). The release and build-status badges were removed rather than
+> left pointing at upstream, where they described a different repository.
 
 <h3 align='center'><b></b></h3>
 <hr>
