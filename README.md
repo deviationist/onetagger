@@ -29,6 +29,86 @@ MP3, AIFF, FLAC, M4A (AAC, ALAC) supported.
 https://user-images.githubusercontent.com/15169286/193469224-cbf3af71-f6d7-4ecd-bdbf-5a1dca2d99c8.mp4
 
 
+## What this fork adds
+
+This is a fork of [Marekkon5/onetagger](https://github.com/Marekkon5/onetagger). It tracks
+upstream and keeps every change on top; nothing upstream is removed. Some of the work here
+is offered back as pull requests, some is too opinionated for upstream, and some simply
+has not been proposed yet.
+
+If you run OneTagger **on a server** rather than on your desktop, or you keep a large
+library in **AIFF**, this fork is likely worth using.
+
+**Runs headless, in Docker**
+
+- A `Dockerfile` and `docker-compose.yml` that build `onetagger-cli` only, so there is no
+  GUI/webkit/gtk dependency chain. The web UI is embedded and served on port `36913`.
+- Built on the [LinuxServer.io](https://www.linuxserver.io/) s6-overlay base, so it takes
+  the usual `PUID` / `PGID` / `UMASK` environment variables instead of needing `--user`
+  juggling or a umask wrapper. See [Docker](#docker) below.
+- The client speaks `wss://` when it is served over HTTPS, so it works behind a TLS
+  reverse proxy instead of failing to open its websocket.
+- The audio endpoint honours HTTP range requests, so seeking in the player works when the
+  UI is reached over a network rather than from localhost.
+
+**Fixes AIFF titles that never reach Plex (and other `NAME`-preferring players)**
+
+An AIFF can carry a title in two independent places: the IFF `NAME` chunk near the start
+of the file, and an ID3 `TIT2` frame in the `ID3 ` chunk at the end. Nothing in the spec
+says which wins, and consumers disagree. Upstream writes only ID3, so editing a title
+leaves the file self-contradictory — and any player that prefers `NAME` keeps showing the
+old title through any number of rescans.
+
+Measured over a 2740-track AIFF library, Plex used `NAME` in 1718/1718 files that had one,
+and `TIT2` in 1022/1022 that did not, with no counterexamples. This fork keeps the two in
+step on write. Only an existing `NAME` is updated — a file without one is unambiguous
+precisely because every consumer falls back to ID3, so creating one would manufacture the
+problem rather than prevent it. The file keeps its inode, so a filesystem watcher sees an
+edit rather than a delete followed by a create.
+
+**Search the whole library, not just the current folder**
+
+Quick Tag and the Tag Editor can both search every file under the library root instead of
+only filtering what is already loaded. A `Folder | Library` toggle sits on the search box
+in each view; results appear in that view's own list, with the folder shown per row.
+
+Matching is a case-insensitive AND over whitespace-separated terms, run against the path
+relative to the root with the extension included — so `aiff` narrows by format, and
+`80s cyndi` matches whichever of the two the folder happens to carry. It matches paths and
+filenames, not tags: the directory walk is effectively free, while reading tags is not, and
+on the libraries this was built for the title is present in the filename often enough that
+an index is not worth its cost.
+
+**A file browser that can find things**
+
+- Sort by name or date in both browsers, with creation time and modification time as
+  separate sorts.
+- Quick Tag opens at the folder you configured rather than its parent.
+- Each entry is `stat()`ed once instead of twice, which is measurable on a network
+  filesystem.
+
+**Linkable views**
+
+Tag Editor and Quick Tag reflect their state — path, filter, sort, selected file, search
+scope — into the URL's query string, so a view can be bookmarked, shared, and survives a
+reload.
+
+**A readable Autotagger status screen**
+
+- The per-platform status list is also available as a sortable table, switchable at
+  runtime and remembered per browser. The list stays the default.
+- Failures are deduplicated when the same track fails on several platforms.
+
+**Assorted fixes**
+
+- A malformed tag no longer makes a track unplayable.
+- Beatport search works after the site dropped `__NEXT_DATA__`; Beatsource token handling
+  and query encoding are fixed.
+- Duplicate custom tags are prevented and ID3 date formats standardised.
+- Album art persists correctly.
+- Text in the UI can be selected.
+
+
 ## Installing
 
 You can download latest binaries from [releases](https://github.com/Marekkon5/onetagger/releases)
