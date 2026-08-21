@@ -17,3 +17,8 @@ assets/vc_redist.x64.exe
 perf.data
 perf.data.old
 flamegraph.svg
+
+# Local deployment config -- registry, tags, deploy paths.
+# Copy .env.example -> .env and fill in. Never tracked: it is site-specific.
+.env
+.env.local
