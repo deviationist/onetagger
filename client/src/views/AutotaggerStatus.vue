@@ -154,13 +154,15 @@
 
 <script lang='ts' setup>
 import { useQuasar } from 'quasar';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { get1t } from '../scripts/onetagger.js';
 import {
     countStatus as countStatusBucket,
     getStatus,
     type ViewMode,
+    loadViewMode,
+    saveViewMode,
 } from '../scripts/autotaggerStatus';
 import AutotaggerStatusList from '../components/AutotaggerStatusList.vue';
 import AutotaggerStatusTable from '../components/AutotaggerStatusTable.vue';
@@ -171,7 +173,9 @@ const $router = useRouter();
 const time = ref('0:00');
 const filter = ref<string | undefined>(undefined);
 const stopping = ref(false);
-const viewMode = ref<ViewMode>('list');
+// Restored from localStorage so the choice survives a reload and a restart.
+const viewMode = ref<ViewMode>(loadViewMode());
+watch(viewMode, (v) => saveViewMode(v));
 let timeInterval: any = undefined;
 
 function countStatus(status: string) {
