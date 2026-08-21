@@ -32,9 +32,11 @@ https://user-images.githubusercontent.com/15169286/193469224-cbf3af71-f6d7-4ecd-
 ## What this fork adds
 
 This is a fork of [Marekkon5/onetagger](https://github.com/Marekkon5/onetagger). It tracks
-upstream and keeps every change on top; nothing upstream is removed. Some of the work here
-is offered back as pull requests, some is too opinionated for upstream, and some simply
-has not been proposed yet.
+upstream and keeps every change on top; nothing upstream is removed.
+
+Upstream has not published a commit since February 2026, so this fork is where these
+changes live. The `upstream` remote is still tracked, and if the project revives its work
+merges straight in.
 
 If you run OneTagger **on a server** rather than on your desktop, or you keep a large
 library in **AIFF**, this fork is likely worth using.
