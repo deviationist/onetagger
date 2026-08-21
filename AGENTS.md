@@ -18,10 +18,10 @@ Fork of [`Marekkon5/onetagger`](https://github.com/Marekkon5/onetagger).
 
 - **`main` is the build branch.** It is the *integration* branch: everything we
   run is consolidated here first. Its history is ours, not upstream's.
-- **`feature/<name>`** — our own work, not intended for upstream (or not yet).
-- **`pr/<name>`** — work meant to be contributed. Branch these from
-  **`upstream/master`**, not from `main`, so the diff stays clean and the PR
-  does not drag our unrelated commits along.
+- **`feature/<name>`** — all new work. Branch from `main`.
+- **`pr/<name>`** — *legacy naming.* These were branched from `upstream/master`
+  back when contributing upstream was the plan. Keep the existing ones as they
+  are; name new branches `feature/*`.
 
 Rules:
 
@@ -141,15 +141,25 @@ IDX=$(curl -s http://127.0.0.1:36913/ | grep -oE 'assets/index-[A-Za-z0-9_-]+\.j
 curl -s "http://127.0.0.1:36913/$IDX" | grep -oE '(QuickTag|TagEditor|AutotaggerStatus)-[A-Za-z0-9_-]+\.js' | sort -u
 ```
 
-## Contributing upstream
+## We do not contribute upstream
 
-- `pr/*` branches are the contributable ones; keep them based on
-  `upstream/master`.
-- **Open every upstream PR as a draft** (`gh pr create --draft`) and leave it to
-  the maintainer's attention only on an explicit say-so.
-- Before proposing a `pr/*` branch, check whether `main` carries later fixes to
-  the same code that the branch lacks — proposing a superseded version wastes a
-  reviewer's time.
+**Upstream is dormant and we do not open PRs against it.** As of 2026-08-21 its
+last commit was 2026-02-13, with 153 open issues and PRs; the two we opened in
+May 2026 (#521, #522) have never been reviewed. Work is done for *our* build
+branch, not for a merge that is not coming.
+
+What follows from that:
+
+- Branch new work from `main`, not `upstream/master`. There is no PR diff to
+  keep clean, and basing on upstream only makes the eventual merge harder.
+- Do not spend effort making a change "upstreamable" — no split commits, no
+  compatibility shims preserving upstream defaults, unless *we* want the
+  behaviour.
+- The `upstream` remote stays. If the project ever revives we want to merge it
+  in cheaply, which is why `main` is upstream-plus-ours rather than a rewrite.
+  See *Keeping current with upstream*.
+- The two open PRs are left open. They cost nothing and are already published;
+  if the maintainer returns they are there.
 
 ## Where state lives
 
