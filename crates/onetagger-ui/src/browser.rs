@@ -17,8 +17,19 @@ impl FileBrowser {
     /// List files in dir with a join path or use default directory
     /// returns new path because it can change
     pub fn list_dir_or_default(path: Option<PathBuf>, subdir: Option<String>, playlists: bool, files: bool, recursive: bool) -> Result<(PathBuf, Vec<FolderEntry>), Error> {
-        let user_dirs = UserDirs::new().ok_or(anyhow!("Invalid home dir!"))?;
-        let path = path.unwrap_or(user_dirs.audio_dir().map(|p| p.to_owned()).unwrap_or(user_dirs.home_dir().to_owned()));
+        // Default into the library when one is set. The audio-dir/home-dir
+        // fallback predates confinement and now names somewhere outside it, so
+        // an unspecified path would open on a directory that is then refused.
+        let path = match path {
+            Some(path) => path,
+            None => match crate::paths::root() {
+                Some(root) => root.to_owned(),
+                None => {
+                    let user_dirs = UserDirs::new().ok_or(anyhow!("Invalid home dir!"))?;
+                    user_dirs.audio_dir().map(|p| p.to_owned()).unwrap_or(user_dirs.home_dir().to_owned())
+                }
+            }
+        };
         let subdir = subdir.unwrap_or(String::new());
         // Override for playlists
         let path = if !path.is_dir() {
@@ -28,8 +39,12 @@ impl FileBrowser {
                 path.to_owned()
             }
         } else {
-            canonicalize(path.join(subdir))?
+            path.join(subdir)
         };
+        // Both browsers reach the filesystem through here, so this is the one
+        // place a listing has to be confined -- including the `..` above, which
+        // is how a client walks upwards out of the library.
+        let path = crate::paths::confine(path)?;
         Ok((path.clone(), Self::list_dir(path, playlists, files, recursive)?))
     }
 
@@ -47,8 +62,16 @@ impl FileBrowser {
     fn list_dir_internal(&self, path: impl AsRef<Path>) -> Result<Vec<FolderEntry>, Error> {
         // Load playlist tracks
         if !path.as_ref().is_dir() {
+            // A playlist's entries are paths out of a file's contents, so unlike
+            // directory entries they are not already inside the library by
+            // construction. Confined individually rather than in validate_path,
+            // which is on the hot path for every directory listing and is
+            // deliberately down to one stat per entry.
             let files = get_files_from_playlist_file(path)?;
-            return Ok(files.iter().filter_map(|e| self.validate_path(Path::new(e).to_owned())).collect());
+            return Ok(files.iter()
+                .filter_map(|e| crate::paths::confine(e).ok())
+                .filter_map(|e| self.validate_path(e))
+                .collect());
         }
         
         // Load files from directory
