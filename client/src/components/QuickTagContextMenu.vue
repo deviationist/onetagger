@@ -83,10 +83,3 @@ function deleteFile() {
 }
 
 </script>
-
-<style lang='scss'>
-.no-menu-shadow {
-    box-shadow: none !important;
-    outline: solid 1px #ffffff69;
-}
-</style>
