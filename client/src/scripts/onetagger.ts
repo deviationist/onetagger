@@ -196,6 +196,12 @@ class OneTagger {
             case 'browse':
                 this.onBrowse(json);
                 break;
+            // A delete finished on disk. Routed to the Tag Editor, which waits
+            // for this before dropping the file it has open; Quick Tag does not
+            // listen -- it reloads its own list on a timer.
+            case 'deleteFiles':
+                this.onTagEditorEvent(json);
+                break;
             // Error
             case 'error':
                 // Unlock, callback
