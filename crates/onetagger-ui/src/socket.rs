@@ -283,7 +283,18 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
         Action::OpenSettingsFolder => opener::open(Settings::get_folder()?.to_str().unwrap())?,
         Action::OpenFolder { path } => { opener::open(&path).ok(); },
         Action::OpenFile { path } => { opener::open(&path).ok(); },
-        Action::DeleteFiles { paths } => { trash::delete_all(&paths)?; },
+        // Acknowledge only after the move succeeded. A client that clears its
+        // view on an optimistic timer claims a file is gone while it is still
+        // on disk -- and on a network filesystem, where the trash directory may
+        // not be creatable at all, that is the likely case rather than the
+        // exotic one. On failure the `?` sends an `error` action instead.
+        Action::DeleteFiles { paths } => {
+            trash::delete_all(&paths)?;
+            send_socket(websocket, json!({
+                "action": "deleteFiles",
+                "paths": paths
+            })).await.ok();
+        },
 
         Action::GeneratePlaylist { paths } => {
             let playlist = onetagger_playlist::create_m3u_playlist(&paths.into_iter().map(|i| i.into()).collect::<Vec<_>>());

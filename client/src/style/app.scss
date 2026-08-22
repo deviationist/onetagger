@@ -234,3 +234,12 @@ code {
 ::-webkit-scrollbar-corner {
     background-color: transparent !important;
 }
+
+/* Context menus. Lives here rather than in QuickTagContextMenu.vue because the
+   Tag Editor's browser menu needs it too, and that view is eager-loaded while
+   the Quick Tag one is lazy -- a component-local style is only present once its
+   component has been imported. */
+.no-menu-shadow {
+    box-shadow: none !important;
+    outline: solid 1px #ffffff69;
+}
