@@ -82,3 +82,15 @@ function migrateBrowserSort(stored: string | undefined): BrowserSort {
 
 export type { BrowserEntry, BrowserSort };
 export { sortBrowserEntries, BROWSER_SORT_OPTIONS, sortDirectionLabel, migrateBrowserSort };
+
+/// Whether `path` is the library root, so a browser should not offer to go up.
+///
+/// The server confines file access to the root it was started on, so the parent
+/// link at the top of the library leads somewhere the backend will refuse. Better
+/// to not offer the move than to explain the error afterwards. With no root
+/// configured -- a local run -- nothing is confined and the link always shows.
+export function atLibraryRoot(path: string | undefined, root: string | undefined): boolean {
+    if (!root || !path) return false;
+    const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '');
+    return norm(path) === norm(root);
+}
