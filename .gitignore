@@ -18,7 +18,8 @@ perf.data
 perf.data.old
 flamegraph.svg
 
-# Local deployment config -- registry, tags, deploy paths.
-# Copy .env.example -> .env and fill in. Never tracked: it is site-specific.
+# Kept as a guard, not because anything here reads one: build and deploy
+# config is site-specific and lives with the compose files it describes, not
+# in this repo.
 .env
 .env.local
