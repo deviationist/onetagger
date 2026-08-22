@@ -65,7 +65,7 @@
                 </div>
 
                 <!-- Parent -->
-                <div class='q-mb-sm clickable te-file' v-if='searchQuery === undefined' @click='loadFiles("..")'>
+                <div class='q-mb-sm clickable te-file' v-if='searchQuery === undefined && !atRoot' @click='loadFiles("..")'>
                     <q-icon size='xs' class='q-mb-xs text-grey-4' name='mdi-folder-upload'></q-icon>
                     <span class='q-ml-sm text-caption text-grey-4'>Parent folder</span>
                 </div>
@@ -440,7 +440,7 @@ import draggable from 'vuedraggable';
 import { ABSTRACTIONS } from '../scripts/tags';
 import { computed, onDeactivated, onMounted, ref } from 'vue';
 import { get1t } from '../scripts/onetagger';
-import { sortBrowserEntries, BROWSER_SORT_OPTIONS, sortDirectionLabel, migrateBrowserSort } from '../scripts/browsersort';
+import { sortBrowserEntries, BROWSER_SORT_OPTIONS, sortDirectionLabel, migrateBrowserSort, atLibraryRoot } from '../scripts/browsersort';
 import { useUrlState } from '../scripts/urlstate';
 import type { BrowserSort } from '../scripts/browsersort';
 import { useQuasar } from 'quasar';
@@ -453,6 +453,8 @@ const $q = useQuasar();
 // setting, so a link opens where it points rather than where you last were.
 const url = useUrlState('tageditor');
 const path = ref(url.read('path') ?? $1t.settings.value.path);
+// The server refuses anything above the library root, so do not offer to go there.
+const atRoot = computed(() => atLibraryRoot(path.value, $1t.libraryRoot.value));
 const files = ref<any[]>([]);
 const originalFiles = ref<any[]>([]);
 const file = ref<any>(undefined);

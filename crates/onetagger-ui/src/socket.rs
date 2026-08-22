@@ -9,7 +9,6 @@ use onetagger_renamer::docs::FullDocs;
 use onetagger_renamer::{Renamer, TemplateParser, RenamerConfig};
 use serde_json::{Value, json};
 use serde::{Serialize, Deserialize};
-use dunce::canonicalize;
 use onetagger_tag::{TagChanges, TagSeparators, Tag, Field};
 use onetagger_tagger::{TaggerConfig, AudioFileInfo, TrackMatch};
 use onetagger_autotag::{Tagger, AudioFileInfoImpl, TaggerConfigExt, AUTOTAGGER_PLATFORMS};
@@ -34,6 +33,7 @@ use crate::StartContext;
 use crate::quicktag::{QuickTag, QuickTagFile, QuickTagData};
 use crate::tageditor::TagEditor;
 use crate::browser::{FileBrowser, FolderBrowser};
+use crate::paths;
 
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -228,6 +228,36 @@ async fn send_socket_inner<D: Serialize>(ws: &mut WebSocket, json: D) -> Result<
     Ok(())
 }
 
+/// Confine both ends of a renamer run.
+///
+/// The renamer reads from `path` and writes to `out_dir`, so an unchecked
+/// out_dir would move files out of the library -- the same outcome as a delete,
+/// reached by a different route. Preview shares this because it walks the source
+/// tree too, and because a preview that succeeds on a path the run then refuses
+/// is a worse experience than failing once.
+fn confine_renamer(mut config: RenamerConfig) -> Result<RenamerConfig, Error> {
+    config.path = paths::confine(&config.path)?;
+    if let Some(out_dir) = config.out_dir {
+        config.out_dir = Some(paths::confine(&out_dir)?);
+    }
+    Ok(config)
+}
+
+/// Resolve a client-supplied search root, defaulting to the library.
+///
+/// `unwrap_or_default()` on a missing path yields an empty PathBuf, which walks
+/// the process's working directory -- somewhere the client never named and, on
+/// a server, nowhere near the library.
+fn search_root(path: Option<String>) -> Result<PathBuf, Error> {
+    match path {
+        Some(path) => paths::confine(PathBuf::from(path)),
+        None => match paths::root() {
+            Some(root) => Ok(root.to_path_buf()),
+            None => Err(Error::msg("No search root given and no library configured"))
+        }
+    }
+}
+
 async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut SocketContext) -> Result<(), Error> {
     // Parse JSON
     let action: Action = serde_json::from_str(text)?;
@@ -281,8 +311,10 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
         // Open URL in external browser
         Action::Browser { url } => { webbrowser::open(&url)?; },
         Action::OpenSettingsFolder => opener::open(Settings::get_folder()?.to_str().unwrap())?,
-        Action::OpenFolder { path } => { opener::open(&path).ok(); },
-        Action::OpenFile { path } => { opener::open(&path).ok(); },
+        // Handing a path to the desktop shell is still acting on it, and on a
+        // server these do nothing useful anyway.
+        Action::OpenFolder { path } => { opener::open(paths::confine(&path)?).ok(); },
+        Action::OpenFile { path } => { opener::open(paths::confine(&path)?).ok(); },
         // Delete outright rather than to the OS trash. Upstream trashes because a
         // desktop user has no other net; this fork targets libraries on network
         // storage that snapshots, which is a better one -- it covers overwrite and
@@ -292,53 +324,25 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
         // mounted library means inside the library, in a dot-directory the file
         // browser deliberately hides. Files disappeared into a folder the app that
         // made it would not show. The UI confirms before this is reached.
-        Action::DeleteFiles { paths } => {
+        Action::DeleteFiles { paths: requested } => {
             // Paths arrive from the client, so they are input, not instructions.
             // Anything reaching this socket can name any path on the host, and
             // the process would happily unlink whatever its uid can reach -- a
             // config file, another service's data, its own settings. Confine it
             // to the library the operator started the server on.
-            let root = match &context.start_context.start_path {
-                Some(path) => Some(canonicalize(path)?),
-                // An exposed server with no library path has nothing to confine
-                // deletes to, so it does not get to delete. Fail closed: the
-                // alternative is a remote unlink primitive.
-                None if context.start_context.expose => return Err(Error::msg(
-                    "Refusing to delete: the server is exposed but was started without --path, \
-                     so there is no library to confine deletes to"
-                )),
-                // Not exposed and no root: a desktop run against localhost, where
-                // the user already has a shell and a file manager. Upstream
-                // behaviour, minus the trash.
-                None => None
-            };
-
             let mut deleted = Vec::new();
             let mut failed = Vec::new();
-            for path in &paths {
-                // realpath before anything else. `..` segments, symlinks and a
-                // repeated separator all mean the string the client sent is not
-                // necessarily the file that would be unlinked, and it is the
-                // resolved one that has to pass the check *and* be the one
-                // deleted -- resolving and then deleting the original would be
-                // the check-then-use gap this exists to close.
-                let resolved = match canonicalize(path) {
+            for path in &requested {
+                // Per path rather than all-or-nothing: a selection with one bad
+                // entry should delete the rest and report which failed.
+                let resolved = match paths::confine(path) {
                     Ok(resolved) => resolved,
                     Err(e) => {
-                        error!("Failed resolving {path}: {e}");
-                        failed.push(format!("{path}: {e}"));
+                        warn!("Refusing to delete {path}: {e}");
+                        failed.push(format!("{e}"));
                         continue;
                     }
                 };
-                if let Some(root) = &root {
-                    // Component-wise, not a string prefix: as text, "/music"
-                    // prefixes "/musicians" too.
-                    if !resolved.starts_with(root) {
-                        warn!("Refusing to delete outside the library: {}", resolved.display());
-                        failed.push(format!("{path}: outside the library"));
-                        continue;
-                    }
-                }
                 match std::fs::remove_file(&resolved) {
                     Ok(_) => deleted.push(path.clone()),
                     Err(e) => {
@@ -359,8 +363,11 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
             }
         },
 
-        Action::GeneratePlaylist { paths } => {
-            let playlist = onetagger_playlist::create_m3u_playlist(&paths.into_iter().map(|i| i.into()).collect::<Vec<_>>());
+        Action::GeneratePlaylist { paths: requested } => {
+            // All-or-nothing here, unlike delete: a playlist quietly missing the
+            // entries that failed is worse than no playlist.
+            let entries = paths::confine_all(&requested)?;
+            let playlist = onetagger_playlist::create_m3u_playlist(&entries);
             if let Some(path) = tinyfiledialogs::save_file_dialog_with_filter(
                 "Save playlist", 
                 &std::env::current_dir()?.to_string_lossy().to_string(), 
@@ -406,9 +413,11 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
         Action::StartTagging { config, playlist } => {
             config.debug_print();
 
-            // Load playlist
+            // Load playlist. Its entries arrive as base64 M3U text from the
+            // browser, so they are client-controlled paths like any other -- and
+            // this is the tagger, which rewrites what it is given.
             let mut files = if let Some(playlist) = playlist {
-                playlist.get_files()?
+                paths::confine_all(&playlist.get_files()?)?
             } else { vec![] };
             let mut file_count = files.len();
             let mut folder_path = None;
@@ -418,7 +427,11 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
                 TaggerConfigs::AutoTagger(c) => {
                     // Load file list
                     if files.is_empty() {
-                        let path = c.path.as_ref().map(|p| p.to_owned()).unwrap_or_default();
+                        // The tagger rewrites every file it is handed, so the
+                        // folder it walks is the highest-consequence path the
+                        // client gets to name.
+                        let path = paths::confine(c.path.as_ref().map(|p| p.to_owned()).unwrap_or_default())?
+                            .to_string_lossy().to_string();
                         files = AudioFileInfo::get_file_list(&path, c.include_subfolders);
                         file_count = files.len();
                         folder_path = Some(path);
@@ -428,7 +441,8 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
                 },
                 TaggerConfigs::AudioFeatures(c) => {
                     if files.is_empty() {
-                        let path = c.path.as_ref().map(|i| i.to_owned()).unwrap_or_default().to_owned();
+                        let path = paths::confine(c.path.as_ref().map(|i| i.to_owned()).unwrap_or_default())?
+                            .to_string_lossy().to_string();
                         files = AudioFileInfo::get_file_list(&path, c.include_subfolders);
                         folder_path = Some(path);
                         file_count = files.len();
@@ -466,6 +480,7 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
             onetagger_autotag::STOP_TAGGING.store(true, Ordering::SeqCst);
         },
         Action::Waveform { path } => {
+            let path = paths::confine(&path)?;
             let source = AudioSources::from_path(&path)?;
             let (waveform_rx, cancel_tx) = source.generate_waveform(180)?;
             // Streamed
@@ -486,6 +501,7 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
         },
         // Load player file
         Action::PlayerLoad { path } => {
+            let path = paths::confine(&path)?;
             let source = AudioSources::from_path(&path)?;
             // Meta. Best-effort: the title and artist here only label the player
             // bar, so a tag that fails to parse should cost the label, not the
@@ -523,12 +539,16 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
             let mut data = QuickTagData::default();
             // Playlist
             if let Some(playlist) = playlist {
-                data = QuickTag::load_files_playlist(&playlist, &separators)?;
+                data = QuickTag::load_files(paths::confine_all(&playlist.get_files()?)?, &separators)?;
             }
             // Path
             if let Some(path) = path {
+                let path = paths::confine(&path)?.to_string_lossy().to_string();
                 if PLAYLIST_EXTENSIONS.iter().any(|e| path.to_lowercase().ends_with(e)) {
-                    data = QuickTag::load_files(get_files_from_playlist_file(&path)?, &separators)?;
+                    // The playlist itself is inside the library; what it names
+                    // need not be.
+                    let tracks = paths::confine_all(&get_files_from_playlist_file(&path)?)?;
+                    data = QuickTag::load_files(tracks, &separators)?;
                 } else {
                     data = QuickTag::load_files_path(
                         &path, 
@@ -546,6 +566,9 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
         },
         // Save quicktag changes
         Action::QuickTagSave { changes } => {
+            // A write, so this matters more than a read: confirm the target is
+            // in the library before commit() opens it.
+            paths::confine(&changes.path)?;
             let tag = changes.commit()?;
             send_socket(websocket, json!({
                 "action": "quickTagSaved",
@@ -564,7 +587,9 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
         }
         // Library-wide search. Only matched paths are tag-read.
         Action::QuickTagSearch { query, path, separators, limit } => {
-            let root = path.map(PathBuf::from).unwrap_or_default();
+            // A search root is a directory the walk descends from, so it needs
+            // the same check a listing does.
+            let root = search_root(path)?;
             let entries = FileBrowser::search(&root, &query, limit.unwrap_or(SEARCH_LIMIT))?;
             let truncated = entries.len() >= limit.unwrap_or(SEARCH_LIMIT);
             let data = QuickTag::load_files(entries.into_iter().map(|e| e.path).collect(), &separators)?;
@@ -614,7 +639,7 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
         },
         // Library-wide search; no tags read, so this stays close to walk cost.
         Action::TagEditorSearch { query, path, limit } => {
-            let root = path.map(PathBuf::from).unwrap_or_default();
+            let root = search_root(path)?;
             let files = FileBrowser::search(&root, &query, limit.unwrap_or(SEARCH_LIMIT))?;
             let truncated = files.len() >= limit.unwrap_or(SEARCH_LIMIT);
             send_socket(websocket, json!({
@@ -626,7 +651,7 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
         },
         // Load tags of file
         Action::TagEditorLoad { path } => {
-            let data = TagEditor::load_file(&path)?;
+            let data = TagEditor::load_file(&paths::confine(&path)?)?;
             send_socket(websocket, json!({
                 "action": "tagEditorLoad",
                 "data": data
@@ -634,6 +659,7 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
         },
         // Save changes
         Action::TagEditorSave { changes } => {
+            paths::confine(&changes.path)?;
             let _tag = changes.commit()?;
             send_socket(websocket, json!({
                 "action": "tagEditorSave"
@@ -660,6 +686,7 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
         },
         // Generate new names but don't rename
         Action::RenamerPreview { config } => {
+            let config = confine_renamer(config)?;
             let mut renamer = Renamer::new(TemplateParser::parse(&config.template));
             let files = AudioFileInfo::load_files_iter(&config.path, config.subfolders, None, None);
             let files = renamer.generate(files.take(3), &config).unwrap_or(vec![]);
@@ -670,6 +697,7 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
         },
         // Start renamer
         Action::RenamerStart { config } => {
+            let config = confine_renamer(config)?;
             let mut renamer = Renamer::new(TemplateParser::parse(&config.template));
             let files = AudioFileInfo::load_files_iter(&config.path, config.subfolders, None, None);
             let files = renamer.generate(files, &config)?;
@@ -688,7 +716,7 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
                     PathBuf::from(format!("{}\\", child))
                 }
             } else {
-                canonicalize(PathBuf::from(path).join(child))?
+                paths::confine(PathBuf::from(path).join(child))?
             };
 
             let e = match base {
@@ -706,6 +734,7 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
 
         // Manually tag a file
         Action::ManualTag { config, path } => {
+            let path = paths::confine(&path)?;
             // Log config
             info!("Manual tag starting for path: {path:?}");
             TaggerConfigs::AutoTagger(config.clone()).debug_print();
@@ -742,6 +771,7 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
         },
         // Apply the tags from manual tagger
         Action::ManualTagApply { matches, path, config } => {
+            let path = paths::confine(&path)?;
             match onetagger_autotag::manual_tagger_apply(matches, path, &config) {
                 Ok(_) => {
                     send_socket(websocket, json!({

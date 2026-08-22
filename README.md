@@ -110,17 +110,29 @@ OneTagger would not show you and offered no way back. This fork removes the file
 leaves keeping a safety net to the storage underneath, where snapshots cover overwriting
 and corruption as well as deletion.
 
-Deletes are confined to the library. Paths arrive over the websocket, so they are input
-rather than instructions: each one is resolved with `realpath` — collapsing `..`, symlinks
-and redundant separators — and the *resolved* path must sit under the `--path` the server
-was started on, which is also the path that then gets unlinked. A server started with
-`--expose` and no `--path` refuses to delete at all, rather than serving as a remote
-unlink for anything its uid can reach.
-
 Both views confirm first, and both wait for the server to acknowledge before dropping
 anything from the list — the acknowledgement carries the paths that were actually
 removed, so a partial failure surfaces as an error and leaves the rest of the list
 alone instead of hiding a track that is still on disk.
+
+**File access is confined to the library**
+
+Upstream takes the client at its word about paths. The websocket actions and the `/audio`
+and `/thumb` endpoints each accept one and go straight to the filesystem, so a server
+reachable by anyone reads, writes, retags and deletes anything its user can reach — a
+crafted `/audio?path=/etc/passwd` needs no more than a browser.
+
+This fork resolves every client-supplied path with `realpath` — collapsing `..`, symlinks
+and redundant separators — and requires the result to sit under the `--path` the server
+was started on. The resolved path is then the one used, since checking one path and
+opening another is the gap the check exists to close, and the comparison is component-wise
+because as text `/music` also prefixes `/musicians`. It covers listing, loading, playing,
+waveforms, album art, tag writes, the autotagger and renamer inputs, playlist entries
+(which are paths out of a file's contents, so they can name anything at all) and deletion.
+
+A server started with `--expose` and no `--path` has nothing to confine access to and
+refuses it outright rather than failing open. A local run with no `--path` is unrestricted,
+exactly as upstream — the user driving the file dialog already has a shell.
 
 **Linkable views**
 

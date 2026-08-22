@@ -24,6 +24,7 @@ use tokio::runtime::Builder;
 use tokio::net::TcpListener;
 use onetagger_shared::{PORT, WEBSERVER_CALLBACKS};
 
+pub mod paths;
 pub mod socket;
 pub mod browser;
 pub mod quicktag;
@@ -43,6 +44,9 @@ pub struct StartContext {
 
 fn start_async_runtime(context: StartContext) -> Result<(), Error> {
     let expose = context.expose;
+    // Before any route is registered: every handler below reaches the
+    // filesystem with a client-supplied path.
+    paths::init(&context);
     Builder::new_multi_thread().enable_all().build()?.block_on(async move {
         // Register routes
         let app = Router::new()
@@ -93,6 +97,15 @@ struct GetQueryPath {
 
 /// Serve thumbnail
 async fn get_thumb(Query(GetQueryPath { path }): Query<GetQueryPath>) -> impl IntoResponse {
+    // Unauthenticated as far as this process is concerned: whatever can reach
+    // the port can ask for any path. Confine before touching the file.
+    let path = match paths::confine(&path) {
+        Ok(path) => path.to_string_lossy().to_string(),
+        Err(e) => {
+            warn!("Refused album art request: {e}");
+            return (StatusCode::FORBIDDEN, [(CONTENT_TYPE, "text/plain".to_string())], format!("{e}").into_bytes());
+        }
+    };
     match QuickTagFile::get_art(&path) {
         Ok(art) => (StatusCode::OK, [(CONTENT_TYPE, "image/jpeg".to_string())], art),
         Err(e) => {
@@ -134,6 +147,17 @@ fn parse_range(header: &str, total: u64) -> Option<(u64, u64)> {
 
 /// Serve audio, with Range support so the client-side player can seek.
 async fn get_audio(headers: HeaderMap, Query(GetQueryPath { path }): Query<GetQueryPath>) -> Response {
+    // Same as /thumb: confine before the path reaches a decoder. Done ahead of
+    // the cache lookup so a refused path cannot be answered from a decode an
+    // earlier, permitted request left behind.
+    let path = match paths::confine(&path) {
+        Ok(path) => path.to_string_lossy().to_string(),
+        Err(e) => {
+            warn!("Refused audio request: {e}");
+            return (StatusCode::FORBIDDEN, [(CONTENT_TYPE, "text/plain")], format!("{e}")).into_response();
+        }
+    };
+
     // Reuse the last decode if it is the same file
     let cached = AUDIO_CACHE.lock().ok()
         .and_then(|c| c.as_ref().filter(|(p, _)| *p == path).map(|(_, d)| d.clone()));
