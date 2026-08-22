@@ -63,7 +63,7 @@ function deleteFile() {
     // Confirm dialog
     $q.dialog({
         title: 'Delete File',
-        message: 'Do you really want to delete the selected file?',
+        message: 'Permanently delete the selected file from disk? This cannot be undone from OneTagger.',
         persistent: false,
         ok: {
             color: 'red'                        
@@ -74,11 +74,9 @@ function deleteFile() {
     }).onOk(() => {
         if ($1t.player.value.path == path.value)
             $1t.player.value.stop();
+        // The list refresh is driven by the server's acknowledgement, handled
+        // in the Quick Tag view -- see there for why not a timer.
         $1t.send('deleteFiles', { paths: [path.value] });
-        setTimeout(() => {
-            $1t.quickTag.value.track.removeAll();
-            $1t.loadQuickTag();
-        }, 50);
     });
 }
 
