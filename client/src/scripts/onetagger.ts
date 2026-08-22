@@ -196,11 +196,12 @@ class OneTagger {
             case 'browse':
                 this.onBrowse(json);
                 break;
-            // A delete finished on disk. Routed to the Tag Editor, which waits
-            // for this before dropping the file it has open; Quick Tag does not
-            // listen -- it reloads its own list on a timer.
+            // A delete finished on disk. Both views wait for this before
+            // dropping anything: it carries the paths that actually went, which
+            // is the only way either can tell a partial failure from a clean run.
             case 'deleteFiles':
                 this.onTagEditorEvent(json);
+                this.onQuickTagEvent('deleteFiles', json);
                 break;
             // Error
             case 'error':

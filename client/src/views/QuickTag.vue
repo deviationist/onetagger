@@ -734,7 +734,7 @@ onMounted(() => {
                 // Confirm dialog
                 $q.dialog({
                     title: 'Delete File',
-                    message: 'Do you really want to delete the selected file(s)?',
+                    message: 'Permanently delete the selected file(s) from disk? This cannot be undone from OneTagger.',
                     persistent: false,
                     ok: {
                         color: 'red'                        
@@ -745,11 +745,18 @@ onMounted(() => {
                 }).onOk(() => {
                     $1t.player.value.stop();
                     $1t.send('deleteFiles', { paths: $1t.quickTag.value.track.tracks.map(t => t.path) });
-                    setTimeout(() => {
-                        $1t.quickTag.value.track.removeAll();
-                        $1t.loadQuickTag();
-                    }, 50);
                 });
+                break;
+
+            // Deletes are permanent now, so the list must follow what actually
+            // happened rather than a 50ms guess that it did: the acknowledgement
+            // carries the paths that really went, and a failure arrives as an
+            // error instead, leaving the list alone rather than hiding a track
+            // that is still there.
+            case 'deleteFiles':
+                if (!data || !data.paths || data.paths.length == 0) break;
+                $1t.quickTag.value.track.removeAll();
+                $1t.loadQuickTag();
                 break;
 
             case 'quickTagSaved':
