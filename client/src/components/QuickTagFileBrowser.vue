@@ -42,7 +42,7 @@
         </div>
 
         <!-- Parent -->
-        <div class='q-mb-sm clickable te-file' @click='loadFiles("..")'>
+        <div class='q-mb-sm clickable te-file' v-if='!atRoot' @click='loadFiles("..")'>
             <q-icon size='xs' class='q-mb-xs text-grey-5' name='mdi-folder-upload'></q-icon>
             <span class='q-ml-sm text-caption text-grey-5'>Parent folder</span>
         </div>
@@ -67,9 +67,9 @@
 </template>
 
 <script lang='ts' setup>
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { get1t } from '../scripts/onetagger.js';
-import { sortBrowserEntries, BROWSER_SORT_OPTIONS, sortDirectionLabel, migrateBrowserSort } from '../scripts/browsersort';
+import { sortBrowserEntries, BROWSER_SORT_OPTIONS, sortDirectionLabel, migrateBrowserSort, atLibraryRoot } from '../scripts/browsersort';
 import type { BrowserSort } from '../scripts/browsersort';
 import { useUrlState } from '../scripts/urlstate';
 
@@ -91,6 +91,8 @@ const urlFolder = url.read('folder');
 // the selection; fall back to it so those keep working.
 const urlSelection = urlFolder ?? urlPath;
 const path = ref(urlPath ?? urlFolder ?? $1t.settings.value.path);
+// The server refuses anything above the library root, so do not offer to go there.
+const atRoot = computed(() => atLibraryRoot(path.value, $1t.libraryRoot.value));
 const files = ref<any[]>([]);
 const originalFiles = ref<any[]>([]);
 const filter = ref<string | undefined>(url.read('bfilter'));
