@@ -94,6 +94,23 @@
                                 <span class='te-result-path'>{{resultFolder(file.path)}}</span>
                                 <span class='te-result-name'>{{file.filename}}</span>
                             </span>
+
+                            <!-- Same right-click idiom as Quick Tag. Files only:
+                                 the backend deletes paths, and offering it on a
+                                 folder row would imply a recursive delete this
+                                 does not do. -->
+                            <q-menu v-if='!file.dir && !file.playlist' touch-position context-menu class='no-menu-shadow'>
+                                <q-list>
+                                    <q-item dense clickable v-close-popup @click='confirmDelete(file.path)'>
+                                        <q-item-section avatar>
+                                            <q-icon name='mdi-delete' color='red'></q-icon>
+                                        </q-item-section>
+                                        <q-item-section class='text-red'>
+                                            Delete
+                                        </q-item-section>
+                                    </q-item>
+                                </q-list>
+                            </q-menu>
                         </div>
                     </template>
 
@@ -158,7 +175,13 @@
             </div>
 
             <div v-if='file' class='q-px-md'>
-                <div class='text-center q-py-md text-subtitle2 text-grey-5 monospace selectable' title='Select to copy'>{{file.filename}}</div>
+                <div class='row items-center justify-center q-py-md no-wrap'>
+                    <div class='text-subtitle2 text-grey-5 monospace selectable' title='Select to copy'>{{file.filename}}</div>
+                    <q-btn round dense flat class='q-ml-sm' @click='confirmDelete(file.path)'>
+                        <q-icon name='mdi-delete' size='xs' class='text-red'></q-icon>
+                        <q-tooltip>Delete this file</q-tooltip>
+                    </q-btn>
+                </div>
                 <div class='q-mt-md'>
                     <div v-for='(tag, i) in Object.keys(file.tags)' :key='i' class='row q-my-sm'>
                         <div class='col-3 text-body2 text-uppercase text-primary text-weight-medium q-mt-sm q-pr-xs' style='text-overflow: ellipsis; overflow: hidden;'>
@@ -473,6 +496,63 @@ function loadFile(path: string) {
     $1t.send('tagEditorLoad', {path});
     if ($1t.settings.value.tagEditorPlayer)
         $1t.player.value.loadTrack(path);
+}
+
+/// Delete a file, after confirming. The backend moves it to the OS trash
+/// (`trash::delete_all`) rather than unlinking it, so on a platform that has a
+/// trash this is recoverable -- but where one cannot be created the delete
+/// fails outright, which is why nothing here assumes success.
+function confirmDelete(target: string) {
+    $q.dialog({
+        title: 'Delete File',
+        message: `Do you really want to delete ${filename(target)}?`,
+        persistent: false,
+        ok: {
+            color: 'red'
+        },
+        cancel: {
+            color: ''
+        }
+    }).onOk(() => {
+        // Release it before it moves -- the player would go on reading a path
+        // that is about to stop existing.
+        if ($1t.player.value.path == target)
+            $1t.player.value.stop();
+        $1t.send('deleteFiles', { paths: [target] });
+    });
+}
+
+/// The backend confirmed the delete. Only now is it safe to drop the open file:
+/// a failed delete arrives as an `error` instead, and the editor keeps what it
+/// had rather than clearing on optimism and claiming a still-present file is
+/// gone.
+function onDeleted(paths: string[]) {
+    if (!paths || paths.length == 0) return;
+
+    // Pending edits cannot be written to a file that has moved, and the
+    // autosave in loadFile() would try on the very next click.
+    if (file.value && paths.includes(file.value.path)) {
+        file.value = undefined;
+        changes.value = [];
+        url.write({ file: undefined });
+    }
+
+    // The custom list holds paths, so a deleted one survives there as a row
+    // that errors when clicked.
+    let before = customList.value.length;
+    customList.value = customList.value.filter((p: string) => !paths.includes(p));
+    if (customList.value.length != before) saveSettings();
+
+    // Refresh whichever listing is on screen: a search result set does not come
+    // back from a folder load.
+    if (searchQuery.value !== undefined) runLibrarySearch();
+    else loadFiles();
+
+    $q.notify({
+        message: paths.length == 1 ? 'File deleted' : `${paths.length} files deleted`,
+        timeout: 2000,
+        position: 'top-right'
+    });
 }
 
 // If file is currently open
@@ -866,6 +946,9 @@ function wsCallback(e: any) {
             break;
         case 'tagEditorLoad':
             file.value = e.data;
+            break;
+        case 'deleteFiles':
+            onDeleted(e.paths);
             break;
         case 'tagEditorSave':
             $q.notify({
