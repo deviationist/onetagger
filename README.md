@@ -95,6 +95,19 @@ an index is not worth its cost.
 - Each entry is `stat()`ed once instead of twice, which is measurable on a network
   filesystem.
 
+**Delete a file from the Tag Editor**
+
+Upstream can delete from Quick Tag, but not from the Tag Editor — the view where you
+are already looking at a file closely enough to decide it should go. It now has the same
+right-click item on its browser rows, plus a button beside the open file's name.
+
+Both views delete to the OS trash rather than unlinking. The difference is that the
+server now acknowledges the delete once it has actually happened, instead of the client
+assuming it worked after a fixed delay. That matters on a network filesystem, where the
+trash directory may not be creatable at all: a failed delete surfaces as an error and
+leaves the file where it was, rather than emptying the view and reporting a file gone
+that is still on disk.
+
 **Linkable views**
 
 Tag Editor and Quick Tag reflect their state — path, filter, sort, selected file, search
