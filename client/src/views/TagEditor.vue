@@ -505,7 +505,7 @@ function loadFile(path: string) {
 function confirmDelete(target: string) {
     $q.dialog({
         title: 'Delete File',
-        message: `Do you really want to delete ${filename(target)}?`,
+        message: `Permanently delete ${filename(target)} from disk? This cannot be undone from OneTagger.`,
         persistent: false,
         ok: {
             color: 'red'

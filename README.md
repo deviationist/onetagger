@@ -101,12 +101,26 @@ Upstream can delete from Quick Tag, but not from the Tag Editor — the view whe
 are already looking at a file closely enough to decide it should go. It now has the same
 right-click item on its browser rows, plus a button beside the open file's name.
 
-Both views delete to the OS trash rather than unlinking. The difference is that the
-server now acknowledges the delete once it has actually happened, instead of the client
-assuming it worked after a fixed delay. That matters on a network filesystem, where the
-trash directory may not be creatable at all: a failed delete surfaces as an error and
-leaves the file where it was, rather than emptying the view and reporting a file gone
-that is still on disk.
+Delete also means delete. Upstream hands the file to the OS trash, which is right on a
+desktop — the file lands in the Recycle Bin and the file manager can restore it. On a
+server there is no desktop, so the freedesktop spec falls back to creating `.Trash-<uid>`
+at the top of the volume holding the file: for a mounted library that is *inside the
+library*, in a dot-directory the file browser deliberately hides. Files went somewhere
+OneTagger would not show you and offered no way back. This fork removes the file, and
+leaves keeping a safety net to the storage underneath, where snapshots cover overwriting
+and corruption as well as deletion.
+
+Deletes are confined to the library. Paths arrive over the websocket, so they are input
+rather than instructions: each one is resolved with `realpath` — collapsing `..`, symlinks
+and redundant separators — and the *resolved* path must sit under the `--path` the server
+was started on, which is also the path that then gets unlinked. A server started with
+`--expose` and no `--path` refuses to delete at all, rather than serving as a remote
+unlink for anything its uid can reach.
+
+Both views confirm first, and both wait for the server to acknowledge before dropping
+anything from the list — the acknowledgement carries the paths that were actually
+removed, so a partial failure surfaces as an error and leaves the rest of the list
+alone instead of hiding a track that is still on disk.
 
 **Linkable views**
 
