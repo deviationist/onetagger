@@ -283,17 +283,80 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
         Action::OpenSettingsFolder => opener::open(Settings::get_folder()?.to_str().unwrap())?,
         Action::OpenFolder { path } => { opener::open(&path).ok(); },
         Action::OpenFile { path } => { opener::open(&path).ok(); },
-        // Acknowledge only after the move succeeded. A client that clears its
-        // view on an optimistic timer claims a file is gone while it is still
-        // on disk -- and on a network filesystem, where the trash directory may
-        // not be creatable at all, that is the likely case rather than the
-        // exotic one. On failure the `?` sends an `error` action instead.
+        // Delete outright rather than to the OS trash. Upstream trashes because a
+        // desktop user has no other net; this fork targets libraries on network
+        // storage that snapshots, which is a better one -- it covers overwrite and
+        // corruption too, and it pins a trashed copy exactly as long as a deleted
+        // one, so the trash bought clutter and no safety. Worse, the trash it
+        // creates lands at the top of the volume holding the file, which for a
+        // mounted library means inside the library, in a dot-directory the file
+        // browser deliberately hides. Files disappeared into a folder the app that
+        // made it would not show. The UI confirms before this is reached.
         Action::DeleteFiles { paths } => {
-            trash::delete_all(&paths)?;
+            // Paths arrive from the client, so they are input, not instructions.
+            // Anything reaching this socket can name any path on the host, and
+            // the process would happily unlink whatever its uid can reach -- a
+            // config file, another service's data, its own settings. Confine it
+            // to the library the operator started the server on.
+            let root = match &context.start_context.start_path {
+                Some(path) => Some(canonicalize(path)?),
+                // An exposed server with no library path has nothing to confine
+                // deletes to, so it does not get to delete. Fail closed: the
+                // alternative is a remote unlink primitive.
+                None if context.start_context.expose => return Err(Error::msg(
+                    "Refusing to delete: the server is exposed but was started without --path, \
+                     so there is no library to confine deletes to"
+                )),
+                // Not exposed and no root: a desktop run against localhost, where
+                // the user already has a shell and a file manager. Upstream
+                // behaviour, minus the trash.
+                None => None
+            };
+
+            let mut deleted = Vec::new();
+            let mut failed = Vec::new();
+            for path in &paths {
+                // realpath before anything else. `..` segments, symlinks and a
+                // repeated separator all mean the string the client sent is not
+                // necessarily the file that would be unlinked, and it is the
+                // resolved one that has to pass the check *and* be the one
+                // deleted -- resolving and then deleting the original would be
+                // the check-then-use gap this exists to close.
+                let resolved = match canonicalize(path) {
+                    Ok(resolved) => resolved,
+                    Err(e) => {
+                        error!("Failed resolving {path}: {e}");
+                        failed.push(format!("{path}: {e}"));
+                        continue;
+                    }
+                };
+                if let Some(root) = &root {
+                    // Component-wise, not a string prefix: as text, "/music"
+                    // prefixes "/musicians" too.
+                    if !resolved.starts_with(root) {
+                        warn!("Refusing to delete outside the library: {}", resolved.display());
+                        failed.push(format!("{path}: outside the library"));
+                        continue;
+                    }
+                }
+                match std::fs::remove_file(&resolved) {
+                    Ok(_) => deleted.push(path.clone()),
+                    Err(e) => {
+                        error!("Failed deleting {path}: {e}");
+                        failed.push(format!("{path}: {e}"));
+                    }
+                }
+            }
+            // Acknowledge what actually went, not what was asked for: a partial
+            // failure should drop exactly the rows that are gone, and the client
+            // cannot tell which those are unless it is told.
             send_socket(websocket, json!({
                 "action": "deleteFiles",
-                "paths": paths
+                "paths": deleted
             })).await.ok();
+            if !failed.is_empty() {
+                return Err(Error::msg(format!("Failed deleting: {}", failed.join("; "))));
+            }
         },
 
         Action::GeneratePlaylist { paths } => {
