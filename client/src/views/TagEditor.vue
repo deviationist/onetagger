@@ -176,7 +176,11 @@
 
             <div v-if='file' class='q-px-md'>
                 <div class='row items-center justify-center q-py-md no-wrap'>
-                    <div class='text-subtitle2 text-grey-5 monospace selectable' title='Select to copy'>{{file.filename}}</div>
+                    <div class='text-subtitle2 text-grey-5 monospace selectable'>{{file.filename}}</div>
+                    <q-btn round dense flat class='q-ml-sm' :disable='!canCopy' @click='copyFilename'>
+                        <q-icon name='mdi-content-copy' size='xs' class='text-grey-5'></q-icon>
+                        <q-tooltip>{{ canCopy ? 'Copy filename' : 'Copying needs a secure context (open this over https)' }}</q-tooltip>
+                    </q-btn>
                     <q-btn round dense flat class='q-ml-sm' @click='confirmDelete(file.path)'>
                         <q-icon name='mdi-delete' size='xs' class='text-red'></q-icon>
                         <q-tooltip>Delete this file</q-tooltip>
@@ -892,6 +896,33 @@ function removePOPM() {
 /*
     Saving and backend
 */
+
+/// The Clipboard API is absent outside a secure context, which over plain HTTP
+/// to the server's own port is exactly where this runs. Disable and say why,
+/// rather than offering a button that throws on click.
+const canCopy = computed(() => !!(window.isSecureContext && navigator.clipboard));
+
+/// Copies the filename -- the text shown beside the button -- not the path.
+/// `file.path` is right here and is often the more useful thing to paste, but a
+/// button that copies something other than what it sits next to is a surprise.
+async function copyFilename() {
+    if (!file.value) return;
+    try {
+        await navigator.clipboard.writeText(file.value.filename);
+        $q.notify({
+            message: 'Filename copied',
+            timeout: 2000,
+            position: 'top-right'
+        });
+    } catch (e) {
+        $q.notify({
+            message: `Could not copy: ${e}`,
+            color: 'negative',
+            timeout: 4000,
+            position: 'top-right'
+        });
+    }
+}
 
 // Save to file
 function save() {
