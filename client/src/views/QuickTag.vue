@@ -732,7 +732,19 @@ onMounted(() => {
                 filterTracks();
                 break;
 
-            case 'quickTagLoad':
+            case 'quickTagLoad': {
+                // A selected track can leave underneath the listing -- moved on
+                // by the pipeline, or deleted outside the app. The list itself
+                // reloads, but the selection is held separately and would go on
+                // showing a file that is gone. Only `removeAll` exists, so any
+                // missing member clears the selection; in practice it is one
+                // track.
+                const sel = $1t.quickTag.value.track.tracks;
+                if (sel.length > 0) {
+                    const present = new Set($1t.quickTag.value.tracks.map((t: any) => t.path));
+                    if (sel.some((t: any) => !present.has(t.path))) $1t.quickTag.value.track.removeAll();
+                }
+
                 // Deep link: ?track= selects that file once the list is loaded.
                 // Must run before the trackIndex restore below, which early-
                 // returns when no index was saved -- the common case for a link
@@ -754,6 +766,7 @@ onMounted(() => {
                 }, 50);
 
                 break;
+            }
 
             case 'onDeleteTrack':
                 // Confirm dialog
