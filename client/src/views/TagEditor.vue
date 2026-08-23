@@ -177,13 +177,6 @@
             <div v-if='file' class='q-px-md'>
                 <div class='row items-center justify-center q-py-md no-wrap'>
                     <div class='text-subtitle2 text-grey-5 monospace selectable'>{{file.filename}}</div>
-                    <!-- Close sits left of copy so delete stays at the end of
-                         the row: it is the destructive one, it was there first,
-                         and a new neighbour is how a mis-click happens. -->
-                    <q-btn round dense flat class='q-ml-sm' @click='closeFile'>
-                        <q-icon name='mdi-close' size='xs' class='text-grey-5'></q-icon>
-                        <q-tooltip>Close this file</q-tooltip>
-                    </q-btn>
                     <q-btn round dense flat class='q-ml-sm' :disable='!canCopy' @click='copyFilename'>
                         <q-icon name='mdi-content-copy' size='xs' class='text-grey-5'></q-icon>
                         <q-tooltip>{{ canCopy ? 'Copy filename' : 'Copying needs a secure context (open this over https)' }}</q-tooltip>
@@ -403,9 +396,19 @@
                     </div>
             </div>
 
-            <!-- Save, Manual tag -->
+            <!-- Close, Manual tag, Save -->
             <q-page-sticky position='bottom-right' :offset='[36, 18]'>
                 <div class='row'>
+                    <!-- Leftmost, and outline rather than filled: it is the
+                         one button here that does not act on the file. -->
+                    <q-btn dense
+                        outline
+                        @click='closeFile'
+                        color="grey-5"
+                        class='rounded-borders q-px-md q-mt-xs text-weight-medium q-mr-md'
+                        label="Close"
+                    ></q-btn>
+
                     <q-btn dense
                         push
                         @click='manualTagPath = file.path'
@@ -926,6 +929,9 @@ function removePOPM() {
 */
 
 /// Deselect the open file, leaving the folder listing as it is.
+///
+/// Lives in the sticky footer beside Manual Tag and Save rather than among the
+/// filename's icon buttons: those act *on the file*, this acts on the view.
 ///
 /// The same end state the pipeline reaches when a track is moved out from
 /// under the editor -- but that path is involuntary and discards pending edits
