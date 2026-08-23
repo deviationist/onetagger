@@ -50,13 +50,12 @@ The markup is `client/src/views/TagEditor.vue` around line 178:
 so it is a `q-btn` inserted between those two, matching the delete button's
 `round dense flat` styling with an `mdi-content-copy` icon and a tooltip.
 
-Three things to decide or handle:
+It copies the **filename** -- the text shown -- not the full path. Decided
+2026-08-23; `file.path` is available right there, so the temptation is to
+"helpfully" copy that instead, and it is the wrong thing.
 
-- **Filename or full path?** The header renders `file.filename`, but
-  `file.path` is right there and is usually the more useful thing to paste --
-  into a shell, a search, a message. Worth two buttons, or one that copies the
-  path and a tooltip saying so. Copying the visible text is the least
-  surprising default; copying the path is the more useful one.
+Two things to handle:
+
 - **`navigator.clipboard` needs a secure context.** Over the HTTPS vhost that
   is fine, but a direct LAN visit to the server's own port is plain HTTP, where
   the API is simply absent and an unguarded call throws. Feature-detect and
