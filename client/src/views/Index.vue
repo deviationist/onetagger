@@ -33,7 +33,7 @@
                     </q-card>                    
                 </div>
 
-                <div class="text-subtitle1" style="overflow: auto;">
+                <div v-if="!viewHidden('/audiofeatures')" class="text-subtitle1" style="overflow: auto;">
                     <q-card class='col-3 rounded-borders' style="max-width: 400px; margin-left: 25px; margin-right: 25px;">
                         <q-card-section>
                             <div class='col-3 text-primary text-bold text-subtitle2'>AUDIO FEATURES</div>
@@ -63,7 +63,7 @@
                     </q-card>                    
                 </div>
 
-                <div class="text-subtitle1" style="overflow: auto;">
+                <div v-if="!viewHidden('/renamer')" class="text-subtitle1" style="overflow: auto;">
                     <q-card class='col-3 rounded-borders' style="max-width: 400px; margin-left: 25px; margin-right: 25px;">
                         <q-card-section>
                             <div class='col-3 text-primary text-bold text-subtitle2'>AUTO RENAME</div>
@@ -110,6 +110,12 @@
 import { get1t } from '../scripts/onetagger.js';
 
 const $1t = get1t();
+
+/// Mirrors App.vue: a view switched off should not be advertised on the
+/// landing page either, or the tab is gone but the pitch for it remains.
+function viewHidden(route: string): boolean {
+    return ($1t.settings.value.hiddenViews ?? []).includes(route);
+}
 function help(route: string) {
     $1t.helpDialog.value.route = route;
     $1t.helpDialog.value.open = true;
