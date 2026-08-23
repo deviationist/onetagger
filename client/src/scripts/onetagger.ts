@@ -203,6 +203,14 @@ class OneTagger {
                 this.onTagEditorEvent(json);
                 this.onQuickTagEvent('deleteFiles', json);
                 break;
+            // Both browsers poll this, so it is routed to both. It does not
+            // start with `tagEditor`, so the prefix match in the default arm
+            // below would not deliver it -- which is exactly how the Tag
+            // Editor's first version came to poll and never hear back.
+            case 'folderSignature':
+                this.onTagEditorEvent(json);
+                this.onQuickTagEvent('folderSignature', json);
+                break;
             // Error
             case 'error':
                 // Unlock, callback

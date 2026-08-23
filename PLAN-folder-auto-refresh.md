@@ -196,10 +196,16 @@ The cost is a second HTTP round-trip to a different service rather than riding
 the socket that is already open. At an 8 s interval against one `stat`, that is
 not worth a rebuild to avoid.
 
-**Tag Editor only.** Quick Tag's track list comes from `quickTagLoad`, which
-carries separator settings the injected script has no business reconstructing;
-doing that view properly is the remaining piece, and it *would* be easier from
-inside the fork.
+**Both views, as of the second pass.** Quick Tag reloads through
+`$1t.loadQuickTag()`, which builds the request with the separator settings --
+reconstructing those was the reason the injected version could not cover this
+view, and the reason moving into the fork made it trivial.
+
+That pass also fixed a defect in the first one: `incomingEvent` forwards
+unrecognised actions to the Tag Editor only when the name begins with
+`tagEditor`, so `folderSignature` replies were dropped and the Tag Editor
+polled without ever hearing back. It is now routed explicitly to both views,
+the way `deleteFiles` already was.
 
 Still unaddressed from the analysis above: scroll position is not preserved
 across a refresh, and the open file's own staleness is not detected -- only the

@@ -636,7 +636,20 @@ let selectionDirection = 0;
 
 
 const saveButton = ref<any>();
+/// Folder signature, so a change can be told from a first look. Cleared when
+/// the loaded folder changes, or the new folder's first reply reads as a change.
+const lastSignature = ref<string | undefined>(undefined);
+let signatureTimer: any = undefined;
+
+function pollFolderSignature() {
+    if (document.visibilityState !== 'visible') return;
+    const p = $1t.settings.value.path;
+    if (!p) return;
+    $1t.send('folderSignature', { path: p });
+}
+
 onMounted(() => {
+    signatureTimer = setInterval(pollFolderSignature, 8000);
     $1t.onQuickTagEvent = (action, data) => {
         switch (action) {
             // Save dialog
@@ -753,6 +766,23 @@ onMounted(() => {
             // carries the paths that really went, and a failure arrives as an
             // error instead, leaving the list alone rather than hiding a track
             // that is still there.
+            // The folder changed on disk. Reload through the app's own path so
+            // the request carries the separator settings; reconstructing that
+            // from outside is what kept this out of the injected script.
+            case 'folderSignature':
+                if (!data || data.path !== $1t.settings.value.path) break;
+                var sig = `${data.mtime}:${data.entries}`;
+                if (lastSignature.value === undefined) {
+                    lastSignature.value = sig;             // baseline, not a change
+                    break;
+                }
+                if (lastSignature.value === sig) break;
+                lastSignature.value = sig;
+                // A search result set is not a folder listing; reloading would
+                // replace it with one.
+                if ($1t.quickTag.value.searchQuery === undefined) $1t.loadQuickTag();
+                break;
+
             case 'deleteFiles':
                 if (!data || !data.paths || data.paths.length == 0) break;
                 $1t.quickTag.value.track.removeAll();
@@ -796,6 +826,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+    if (signatureTimer) { clearInterval(signatureTimer); signatureTimer = undefined; }
     // Save track index if single
     if ($1t.quickTag.value.track.tracks.length == 1) {
         $1t.settings.value.quickTag.trackIndex = $1t.quickTag.value.tracks.findIndex((t) => $1t.quickTag.value.track.tracks[0].path == t.path);
