@@ -345,6 +345,23 @@
                 
                 <q-separator class='q-mx-auto' :style='"max-width: 513px; margin-top: -8px; margin-bottom: 35px"' inset color="darker"/>
                 
+                <div class='text-uppercase text-primary text-subtitle2 text-bold q-mt-lg q-mb-xs text-left'>Views</div>
+                <div class='text-grey-6 text-caption q-mb-xs text-left'>
+                    Hidden views are removed from the navigation and cannot be opened by URL.
+                </div>
+                <q-checkbox
+                    :model-value="!viewHidden('/audiofeatures')"
+                    @update:model-value="setViewHidden('/audiofeatures', !$event)"
+                    label='Audio features'
+                    class='checkbox'
+                ></q-checkbox><br>
+                <q-checkbox
+                    :model-value="!viewHidden('/renamer')"
+                    @update:model-value="setViewHidden('/renamer', !$event)"
+                    label='Auto Rename'
+                    class='checkbox'
+                ></q-checkbox><br>
+
                 <div class='text-uppercase text-primary text-subtitle2 text-bold q-mt-lg q-mb-xs text-left'>Auto Tag</div>
                 <q-checkbox
                     v-model='$1t.settings.value.autoTaggerSinglePage'
@@ -467,6 +484,21 @@ const props = defineProps({
     modelValue: { type: Boolean, required: true }
 });
 const $1t = get1t();
+
+/// Shown as "visible" rather than "hidden" so the checkbox reads the way the
+/// tab bar looks: ticked means it is there.
+function viewHidden(route: string): boolean {
+    return ($1t.settings.value.hiddenViews ?? []).includes(route);
+}
+
+function setViewHidden(route: string, hidden: boolean) {
+    const list = ($1t.settings.value.hiddenViews ?? []).filter((r: string) => r !== route);
+    if (hidden) list.push(route);
+    // Replace rather than mutate: the watcher that boots you out of a view you
+    // just hid is on the array reference.
+    $1t.settings.value.hiddenViews = list;
+    $1t.saveSettings(false);
+}
 const colors = [
     'amber',
     'blue', 'blue-4',
