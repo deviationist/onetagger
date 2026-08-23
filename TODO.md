@@ -10,43 +10,22 @@ tooltips saying which is the base, plus a line above Apply stating the rule.
 No behaviour change -- the merge always worked; selection order deciding
 precedence was the invisible part.
 
-## Guided metadata entry for the common fields
+## Guided metadata entry -- done 2026-08-23
 
-A small form -- Title, Artist, Album Artist, Album -- that writes the right
-underlying tags in one save, instead of adding each frame and typing into it.
+A "Common tags" form above the raw tag list: Title, Artist, Album Artist,
+Album, prefilled from the file, applied and saved in one click. Artwork stays
+where it was -- `AddAlbumArt` already covers the fifth field.
 
-**This is a fast path, not new capability.** Worth being clear about, because
-the parts already exist and the value is only in collapsing them:
+Tag names resolve through `tagFormat`, so the same form writes TIT2 on an AIFF
+and TITLE on a FLAC, and the resolved names are shown beside the heading so it
+is a shortcut past the frame IDs rather than a hiding of them.
 
-- The Tag Editor already labels known tags in plain language: `TagEditor.vue`
-  renders `ABSTRACTIONS[tag]` ("Title") with the raw frame beside it, so nobody
-  is deciphering `TIT2` today.
-- Adding a missing tag already works through the `TagField` autocomplete, which
-  takes `:format='tagFormat'` and so offers the right names per format.
+Writes go through `onChange` and then `save()` -- the same path a hand edit
+takes. That keeps the separator rule in one place, and keeps the AIFF NAME
+chunk in step, which a side route would not have.
 
-What is missing is doing four fields at once. Today each is: pick the tag, then
-type the value, repeat.
-
-**Match the completeness gate.** The pipeline holds a track back unless it has
-title, artist, album, album_artist and artwork, so those exact fields are the
-ones worth putting on the form -- it becomes the fastest way to clear a track
-out of `Needs-attention`, which is where the friction actually is. Artwork is
-the fifth and is not a text input; `AddAlbumArt` already covers it and should
-sit alongside rather than be reimplemented.
-
-Two things it must not shortcut:
-
-- **Do not hardcode `TIT2` and friends.** `tagFormat` resolves to id3, vorbis
-  or mp4, and the library holds AIFF and MP3 now but the editor is used on FLAC
-  too. Write through the same per-format mapping `TagField` uses.
-- **Go through the normal save path.** Writing a title is not just `TIT2` for
-  AIFF: this fork keeps the IFF `NAME` chunk in step, and Plex reads `NAME` in
-  preference. A form that wrote tags by a side route would produce files that
-  look right in OneTagger and wrong in Plex -- the exact bug that sync exists
-  to prevent.
-
-Prefill from what the file already has, so it doubles as "show me the four
-fields that matter" rather than only being an entry form.
+An empty field leaves the tag alone rather than deleting it; deletion stays on
+the row below, where it needs a deliberate click.
 
 ## Copy button on the filename -- done
 
