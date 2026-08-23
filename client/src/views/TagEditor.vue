@@ -187,8 +187,9 @@
                     </q-btn>
                 </div>
                 <!-- The four fields that hold a track back, in one place.
-                     Everything below still edits raw tags; this is a shortcut
-                     for the common case, not a replacement. -->
+                     These bind to the very same tags the rows below edit --
+                     not a copy of them -- so the two views can never disagree
+                     and neither can overwrite the other. -->
                 <div class='q-mt-md q-pa-sm rounded-borders' style='background: rgba(255,255,255,0.03)'>
                     <div class='row items-center q-mb-xs'>
                         <div class='text-uppercase text-primary text-caption text-weight-medium col'>Common tags</div>
@@ -198,17 +199,18 @@
                         <q-input
                             v-for='f in COMMON_FIELDS'
                             :key='f.key'
-                            v-model='common[f.key]'
+                            v-model='file.tags[commonTagName(f)]'
                             :label='f.label'
                             filled
                             dense
                             class='col-6'
-                            @keyup.enter='applyCommon'
+                            @change='onChange(commonTagName(f))'
+                            @keyup.enter='save'
                         ></q-input>
                     </div>
                     <div class='row items-center justify-end q-mt-sm'>
-                        <div class='text-caption text-grey-7 q-mr-md' v-if='!commonDirty'>No changes</div>
-                        <q-btn dense flat color='primary' label='Apply' :disable='!commonDirty' @click='applyCommon'></q-btn>
+                        <div class='text-caption text-grey-7 q-mr-md' v-if='changes.length'>{{changes.length}} unsaved</div>
+                        <q-btn dense flat color='primary' label='Save' :disable='!changes.length' @click='save'></q-btn>
                     </div>
                 </div>
 
@@ -478,7 +480,7 @@ import TagField from '../components/TagField.vue';
 import AddAlbumArt from '../components/AddAlbumArt.vue';
 import draggable from 'vuedraggable';
 import { ABSTRACTIONS } from '../scripts/tags';
-import { computed, onDeactivated, onMounted, ref, watch } from 'vue';
+import { computed, onDeactivated, onMounted, ref } from 'vue';
 import { get1t } from '../scripts/onetagger';
 import { sortBrowserEntries, BROWSER_SORT_OPTIONS, sortDirectionLabel, migrateBrowserSort, atLibraryRoot } from '../scripts/browsersort';
 import { useUrlState } from '../scripts/urlstate';
@@ -786,8 +788,6 @@ const COMMON_FIELDS = [
     { key: 'album',       label: 'Album',        id3: 'TALB', vorbis: 'ALBUM',       mp4: '\u00A9alb' },
 ];
 
-const common = ref<Record<string, string>>({});
-
 function commonTagName(f: any): string {
     return f[tagFormat.value ?? 'id3'];
 }
@@ -795,49 +795,7 @@ function commonTagName(f: any): string {
 /// Shown beside the heading so it stays obvious which raw tags are being
 /// written -- this is a shortcut past the frame names, not a hiding of them.
 const commonTagNames = computed(() =>
-    COMMON_FIELDS.map(f => commonTagName(f)).join(' · '));
-
-const commonDirty = computed(() =>
-    COMMON_FIELDS.some(f => (common.value[f.key] ?? '') !== (file.value?.tags?.[commonTagName(f)] ?? '')));
-
-/// Refill from the file whenever a different one is opened, so the form always
-/// shows what is actually on disk rather than the last thing typed.
-function resetCommon() {
-    const next: Record<string, string> = {};
-    for (const f of COMMON_FIELDS) {
-        next[f.key] = file.value?.tags?.[commonTagName(f)] ?? '';
-    }
-    common.value = next;
-}
-
-watch(file, resetCommon, { immediate: true });
-
-/// Write the changed fields and save.
-///
-/// Goes through `onChange` rather than building changes directly: that is the
-/// same path a hand edit takes, so the separator rule (MP3 writes one value,
-/// everything else splits on comma) stays in one place instead of being
-/// reimplemented here and drifting.
-///
-/// Then `save()`, which is what keeps an AIFF's IFF NAME chunk in step with
-/// TIT2. Writing the tags by any other route would leave the file reading
-/// correctly here and wrongly in Plex.
-///
-/// An empty field means "leave this alone", not "delete it" -- clearing a tag
-/// is what the row below is for, and doing it from a blank box would be too
-/// easy to trigger by accident.
-function applyCommon() {
-    if (!file.value || !commonDirty.value) return;
-    for (const f of COMMON_FIELDS) {
-        const tag = commonTagName(f);
-        const value = (common.value[f.key] ?? '').trim();
-        if (!value || value === (file.value.tags[tag] ?? '')) continue;
-        file.value.tags[tag] = value;
-        onChange(tag);
-    }
-    save();
-    resetCommon();
-}
+    COMMON_FIELDS.map(f => commonTagName(f)).join(' \u00B7 '));
 
 /*
     Text Tags
