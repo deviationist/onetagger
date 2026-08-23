@@ -1214,8 +1214,20 @@ $1t.onTagEditorSearchEvent = (json: any) => {
     files.value = json.files;
 };
 
+/// Catch up the moment the tab is looked at again.
+///
+/// `pollFolderSignature` deliberately does nothing while the tab is hidden --
+/// a background tab polling a network mount is pure waste -- and browsers
+/// throttle background timers on top of that. Without this the listing stays
+/// stale for up to a full interval after the tab is focused, which is exactly
+/// when it is being read.
+function onVisible() {
+    if (document.visibilityState === 'visible') pollFolderSignature();
+}
+
 onMounted(() => {
     signatureTimer = setInterval(pollFolderSignature, 8000);
+    document.addEventListener('visibilitychange', onVisible);
     $1t.onTagEditorEvent = wsCallback;
     // A restored ?scope=library link searches rather than listing a folder.
     if (scope.value == 'library' && (filter.value ?? '').trim()) {
@@ -1235,6 +1247,7 @@ onMounted(() => {
 
 // Unregister
 onDeactivated(() => {
+    document.removeEventListener('visibilitychange', onVisible);
     if (signatureTimer) { clearInterval(signatureTimer); signatureTimer = undefined; }
     $1t.onTagEditorEvent = () => {};
 })
