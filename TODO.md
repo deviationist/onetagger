@@ -35,24 +35,52 @@ Worth doing:
 - Consider showing which fields each match would actually contribute, so the
   cover-art-only case is obvious at a glance.
 
-## Feature flags to hide unused views
+## Copy button on the open file's name (Tag Editor)
 
-Hide **Audio features** and **Auto rename** from the nav — never used here, and
-they are two of six top-level tabs.
+Requested 2026-08-23. A copy-to-clipboard button beside the filename shown
+above the tag list, to the **left** of the delete button.
 
-Notes:
+The markup is `client/src/views/TagEditor.vue` around line 178:
 
-- The tabs are `q-route-tab`s in `client/src/App.vue`; the routes themselves are
-  in `client/src/scripts/router.ts`. Hiding the tab is not enough on its own —
-  the route stays reachable by URL, which is fine for a tidy-up but not if the
-  intent is ever "this build does not ship that feature".
-- Decide the mechanism deliberately, because it sets a precedent:
-  - **Settings toggle** — per-user, no rebuild, discoverable in the UI, and the
-    view stays available for the one time someone wants it.
-  - **Build-time / env flag** — genuinely removes it, but needs a rebuild to
-    change and adds a build dimension to test.
+```
+<div class='text-subtitle2 ... selectable' title='Select to copy'>{{file.filename}}</div>
+<q-btn round dense flat class='q-ml-sm' @click='confirmDelete(file.path)'>
+```
 
-  A settings toggle is probably right for "we never use these"; an env flag is
-  for "this deployment must not expose them".
-- Whichever is chosen, `Index.vue` and any deep links into the hidden views
-  need a sane fallback rather than a blank page.
+so it is a `q-btn` inserted between those two, matching the delete button's
+`round dense flat` styling with an `mdi-content-copy` icon and a tooltip.
+
+Three things to decide or handle:
+
+- **Filename or full path?** The header renders `file.filename`, but
+  `file.path` is right there and is usually the more useful thing to paste --
+  into a shell, a search, a message. Worth two buttons, or one that copies the
+  path and a tooltip saying so. Copying the visible text is the least
+  surprising default; copying the path is the more useful one.
+- **`navigator.clipboard` needs a secure context.** Over the HTTPS vhost that
+  is fine, but a direct LAN visit to the server's own port is plain HTTP, where
+  the API is simply absent and an unguarded call throws. Feature-detect and
+  either fall back to the old select-and-copy or disable the button with a
+  tooltip explaining why -- silently doing nothing is the bad outcome.
+- **Confirm it happened.** The app already uses `$q.notify`; a short "Copied"
+  matches how saving reports itself.
+
+Also drop the now-misleading `title='Select to copy'` hint from the filename
+once a real button exists.
+
+## Feature flags to hide unused views -- done
+
+Shipped as a `hiddenViews` list in settings, with toggles under
+**Settings -> Views** for Audio Features and Auto Rename.
+
+Hiding is real rather than cosmetic: the tab goes, the landing page stops
+advertising the feature, and a router guard redirects a bookmarked or typed URL
+home. Settings arrive over the socket after the first route resolves, so a
+watcher leaves the view once they land -- without it, a cold load straight into
+a hidden view would sit there.
+
+Settings rather than an env var, deliberately: the guard reads it client-side
+and works immediately, where an env var would have to reach the browser first
+and reintroduce the same race the watcher exists to close. Settings also
+persist into the config bind-mount, which is the durability an env var would
+otherwise have bought.
