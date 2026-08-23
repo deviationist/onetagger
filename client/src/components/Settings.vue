@@ -347,12 +347,30 @@
                 
                 <div class='text-uppercase text-primary text-subtitle2 text-bold q-mt-lg q-mb-xs text-left'>Views</div>
                 <div class='text-grey-6 text-caption q-mb-xs text-left'>
-                    Hidden views are removed from the navigation and cannot be opened by URL.
+                    Hidden views are removed from the navigation and cannot be opened by URL. Home always stays.
                 </div>
+                <q-checkbox
+                    :model-value="!viewHidden('/autotagger')"
+                    @update:model-value="setViewHidden('/autotagger', !$event)"
+                    label='Auto tag'
+                    class='checkbox'
+                ></q-checkbox><br>
                 <q-checkbox
                     :model-value="!viewHidden('/audiofeatures')"
                     @update:model-value="setViewHidden('/audiofeatures', !$event)"
                     label='Audio features'
+                    class='checkbox'
+                ></q-checkbox><br>
+                <q-checkbox
+                    :model-value="!viewHidden('/quicktag')"
+                    @update:model-value="setViewHidden('/quicktag', !$event)"
+                    label='Quick Tag'
+                    class='checkbox'
+                ></q-checkbox><br>
+                <q-checkbox
+                    :model-value="!viewHidden('/tageditor')"
+                    @update:model-value="setViewHidden('/tageditor', !$event)"
+                    label='Edit Tags'
                     class='checkbox'
                 ></q-checkbox><br>
                 <q-checkbox
