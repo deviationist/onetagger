@@ -156,6 +156,28 @@ reload.
 - Text in the UI can be selected.
 
 
+## Branches
+
+**`main` is this fork's version of OneTagger** — upstream plus everything listed
+above. Clone it, build it, and you get the additions; that is the point of the
+branch, and it is what release images are built from. It is never rewound to a
+plain copy of upstream.
+
+| Branch | What it is |
+|---|---|
+| `main` | Upstream plus our work. The branch to build and to run. |
+| `feature/<name>` | Our own work, not intended for upstream — or not yet. Merged into `main`. |
+| `pr/<name>` | Work meant to be contributed upstream. Branched from **`upstream/master`**, not from `main`, so the diff carries nothing of ours. |
+
+Upstream changes come in by merging `upstream/master` into `main`. Nothing
+upstream is removed, so `main` stays a superset rather than a divergence.
+
+One caveat on naming a branch `pr/`: generally useful is not the same as
+contributable. A change that reads state our own features introduced will not
+apply over there, however clean it looks here — contributing it means writing a
+reduced variant, not pushing the branch.
+
+
 ## Installing
 
 You can download latest binaries from [releases](https://github.com/Marekkon5/onetagger/releases)
