@@ -199,12 +199,12 @@
                         <q-input
                             v-for='f in COMMON_FIELDS'
                             :key='f.key'
-                            v-model='file.tags[commonTagName(f)]'
+                            :model-value='file.tags[commonTagName(f)]'
+                            @update:model-value='(v: any) => commonInput(f, v)'
                             :label='f.label'
                             filled
                             dense
                             class='col-6'
-                            @change='onChange(commonTagName(f))'
                             @keyup.enter='save'
                         ></q-input>
                     </div>
@@ -796,6 +796,25 @@ function commonTagName(f: any): string {
 /// written -- this is a shortcut past the frame names, not a hiding of them.
 const commonTagNames = computed(() =>
     COMMON_FIELDS.map(f => commonTagName(f)).join(' \u00B7 '));
+
+/// Record the edit as it is typed, rather than waiting for the field to lose
+/// focus.
+///
+/// `onChange` fires on the native change event, which means a value is only
+/// staged when the input blurs. That is fine when the next thing you do is
+/// click elsewhere, and wrong in the case this form exists for: fill the
+/// fields, add artwork, save -- where the last field can still hold focus, or
+/// where an earlier field was edited a second time after its first blur, so
+/// the staged change carries the older value while the file object has the
+/// newer one.
+///
+/// Staging on every keystroke removes the blur dependency entirely. It costs
+/// an array lookup per character, which is nothing next to what it prevents.
+function commonInput(f: any, value: any) {
+    const tag = commonTagName(f);
+    file.value.tags[tag] = value ?? '';
+    onChange(tag);
+}
 
 /*
     Text Tags
