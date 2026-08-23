@@ -1,6 +1,15 @@
 # Plan: getting this fork's work upstream
 
-**Status: proposed (2026-08-23).** Not started.
+**Status: deferred (2026-08-23).** Deliberately last. The fork exists to fit
+this library's workflow, and that comes first; contributing back is what
+happens once it does, not something to interleave with it.
+
+Nothing here is urgent enough to change that -- including the path-confinement
+item, which is a real vulnerability in *upstream's* shipped code but not in
+ours, since this fork already closes it. Offering the fix is a courtesy to
+other people running an exposed instance, not maintenance of our own.
+
+Do not re-propose this while feature work is outstanding.
 
 ## Goal
 
