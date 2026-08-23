@@ -1,5 +1,8 @@
 # Plan: auto-refresh the file browser when a folder changes on disk
 
+**Confirmed in the GUI 2026-08-23**: a file copied into `Needs-attention`
+appeared in both Quick Tag and Edit Tags with neither reloaded.
+
 **Verified 2026-08-23** against a live container, after two earlier claims of
 working that were not: queried `folderSignature` over the socket for a
 787-entry folder and got `entries=787`, `mtime=1787526874`, both matching the
