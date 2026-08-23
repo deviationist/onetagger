@@ -16,8 +16,8 @@
                             </q-route-tab>
                             <q-route-tab :disable="$1t.lock.value.locked" to="/autotagger" class="text-weight-bolder" @click="hideSide" >Auto tag</q-route-tab >
                             <q-route-tab :disable="$1t.lock.value.locked" to="/audiofeatures" class="text-weight-bolder" @click="audioFeatures" >Audio features</q-route-tab >
-                            <q-route-tab :disable="$1t.lock.value.locked" to="/quicktag" class="text-weight-bolder" @click="showSide" >Quick Tag</q-route-tab >
-                            <q-route-tab :disable="$1t.lock.value.locked" to="/tageditor" class="text-weight-bolder" @click="hideSide" >Edit Tags</q-route-tab >
+                            <q-route-tab :disable="$1t.lock.value.locked" :to="folderLink('/quicktag')" class="text-weight-bolder" @click="showSide" >Quick Tag</q-route-tab >
+                            <q-route-tab :disable="$1t.lock.value.locked" :to="folderLink('/tageditor')" class="text-weight-bolder" @click="hideSide" >Edit Tags</q-route-tab >
                             <q-route-tab :disable="$1t.lock.value.locked" to="/renamer" class="text-weight-bolder" @click="hideSide" >Auto Rename</q-route-tab>
                         </q-tabs>
                     </div>
@@ -136,6 +136,27 @@ import FolderBrowser from './components/FolderBrowser.vue';
 import LogoText from './components/LogoText.vue';
 
 const $1t = get1t();
+
+/// Destination for a view switch, carrying the folder currently in use.
+///
+/// Both folder-aware views already fall back to `settings.path` when the URL
+/// says nothing, so the folder survives the click without this. A *reload*
+/// does not: the view reads settings while mounting, but `loadSettings`
+/// arrives later over the socket and replaces the whole object, so which of
+/// the two wins decides where you end up -- and losing that race silently
+/// drops you at the server's start path.
+///
+/// Writing the folder into the URL removes the race rather than narrowing it:
+/// the query is there synchronously at mount, before any socket traffic. Safe
+/// to read `settings.path` here because a tab click only happens long after
+/// the app has loaded, unlike the mount-time read it is fixing.
+///
+/// Both views read `path`; Quick Tag treats it as the selection too when no
+/// `folder` is given, which is what a switch between the two should mean.
+function folderLink(route: string) {
+    const folder = $1t.settings.value.path;
+    return folder ? { path: route, query: { path: folder } } : { path: route };
+}
 const $q = useQuasar();
 const router = useRouter();
 
