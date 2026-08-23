@@ -648,8 +648,20 @@ function pollFolderSignature() {
     $1t.send('folderSignature', { path: p });
 }
 
+/// Catch up the moment the tab is looked at again.
+///
+/// `pollFolderSignature` deliberately does nothing while the tab is hidden --
+/// a background tab polling a network mount is pure waste -- and browsers
+/// throttle background timers on top of that. Without this the listing stays
+/// stale for up to a full interval after the tab is focused, which is exactly
+/// when it is being read.
+function onVisible() {
+    if (document.visibilityState === 'visible') pollFolderSignature();
+}
+
 onMounted(() => {
     signatureTimer = setInterval(pollFolderSignature, 8000);
+    document.addEventListener('visibilitychange', onVisible);
     $1t.onQuickTagEvent = (action, data) => {
         switch (action) {
             // Save dialog
@@ -826,6 +838,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+    document.removeEventListener('visibilitychange', onVisible);
     if (signatureTimer) { clearInterval(signatureTimer); signatureTimer = undefined; }
     // Save track index if single
     if ($1t.quickTag.value.track.tracks.length == 1) {
