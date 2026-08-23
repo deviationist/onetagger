@@ -1,6 +1,9 @@
 # Plan: auto-refresh the file browser when a folder changes on disk
 
-**Status: proposed (2026-08-23).** Not started.
+**Status: built 2026-08-23, but not the way this plan proposed.** Shipped
+outside the fork entirely -- see *What was actually built* at the end. The
+analysis below still holds and is why the built version polls rather than
+watches; only the plumbing differs.
 
 ## Problem
 
@@ -172,3 +175,32 @@ regardless of whether anything happened.
 - Detecting *content* changes to files (tags rewritten underneath us). Folder
   mtime deliberately does not signal that, and the current listing does not
   display anything that would go stale as a result.
+
+
+## What was actually built (2026-08-23)
+
+Option C's reasoning, none of its fork changes:
+
+| Piece | Where |
+|---|---|
+| Folder signature (`mtime` + entry `count`) | a read-only endpoint on `pipeline-api`, confined to the music root |
+| The 8 s poll, visibility-gated | the injected `promote.js` |
+| The reload | a real `tagEditorFolder` request on the app's own socket |
+
+The last row is why no `folderSignature` action was added here. OneTagger
+already has a message meaning "list this folder", and the app renders its
+response natively -- so the refresh reuses the existing path instead of adding
+a parallel one, and the whole feature ships without a rebuild.
+
+The cost is a second HTTP round-trip to a different service rather than riding
+the socket that is already open. At an 8 s interval against one `stat`, that is
+not worth a rebuild to avoid.
+
+**Tag Editor only.** Quick Tag's track list comes from `quickTagLoad`, which
+carries separator settings the injected script has no business reconstructing;
+doing that view properly is the remaining piece, and it *would* be easier from
+inside the fork.
+
+Still unaddressed from the analysis above: scroll position is not preserved
+across a refresh, and the open file's own staleness is not detected -- only the
+folder's.

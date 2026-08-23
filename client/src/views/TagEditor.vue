@@ -177,6 +177,13 @@
             <div v-if='file' class='q-px-md'>
                 <div class='row items-center justify-center q-py-md no-wrap'>
                     <div class='text-subtitle2 text-grey-5 monospace selectable'>{{file.filename}}</div>
+                    <!-- Close sits left of copy so delete stays at the end of
+                         the row: it is the destructive one, it was there first,
+                         and a new neighbour is how a mis-click happens. -->
+                    <q-btn round dense flat class='q-ml-sm' @click='closeFile'>
+                        <q-icon name='mdi-close' size='xs' class='text-grey-5'></q-icon>
+                        <q-tooltip>Close this file</q-tooltip>
+                    </q-btn>
                     <q-btn round dense flat class='q-ml-sm' :disable='!canCopy' @click='copyFilename'>
                         <q-icon name='mdi-content-copy' size='xs' class='text-grey-5'></q-icon>
                         <q-tooltip>{{ canCopy ? 'Copy filename' : 'Copying needs a secure context (open this over https)' }}</q-tooltip>
@@ -896,6 +903,29 @@ function removePOPM() {
 /*
     Saving and backend
 */
+
+/// Deselect the open file, leaving the folder listing as it is.
+///
+/// The same end state the pipeline reaches when a track is moved out from
+/// under the editor -- but that path is involuntary and discards pending edits
+/// because the file it would write to has gone. This one is a deliberate
+/// click on a file that is still there, so unsaved changes are worth a
+/// question rather than a silent loss.
+function closeFile() {
+    let close = () => {
+        file.value = undefined;
+        changes.value = [];
+        url.write({ file: undefined });
+    };
+    if (!changes.value.length) return close();
+    $q.dialog({
+        title: 'Close file',
+        message: 'This file has unsaved changes. Close it and discard them?',
+        cancel: true,
+        persistent: false,
+        ok: { color: 'red', label: 'Discard' }
+    }).onOk(close);
+}
 
 /// The Clipboard API is absent outside a secure context, which over plain HTTP
 /// to the server's own port is exactly where this runs. Disable and say why,
