@@ -81,6 +81,9 @@ enum Action {
     SpotifyAuthorized,
 
     TagEditorFolder { path: Option<String>, subdir: Option<String>, recursive: Option<bool>  },
+    /// Cheap "has this folder changed" probe, so a view can notice files
+    /// appearing or disappearing without re-listing on a timer.
+    FolderSignature { path: String },
     /// Library-wide search by path/filename. Returns bare entries -- the Tag
     /// Editor's result rows show path and filename only, so no tags are read.
     TagEditorSearch { query: String, path: Option<String>, limit: Option<usize> },
@@ -624,6 +627,35 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
             send_socket(websocket, json!({
                 "action": "spotifyAuthorized",
                 "value": context.spotify.is_some()
+            })).await.ok();
+        },
+        // A directory's mtime moves when an entry is added, removed or renamed,
+        // and does not move when a file's contents are rewritten -- which is
+        // exactly what a file browser needs to know and nothing more. One stat
+        // instead of a directory walk, so a client can ask often.
+        //
+        // `entries` disambiguates two changes landing inside one filesystem
+        // timestamp tick. Dotfiles are excluded to match what the browser
+        // shows; on a network mount there is usually at least one.
+        Action::FolderSignature { path } => {
+            let path = paths::confine(&path)?;
+            let meta = std::fs::metadata(&path)?;
+            if !meta.is_dir() {
+                return Err(anyhow!("not a directory: {path:?}"));
+            }
+            let mtime = meta.modified().ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+            let entries = std::fs::read_dir(&path)?
+                .filter_map(|e| e.ok())
+                .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+                .count();
+            send_socket(websocket, json!({
+                "action": "folderSignature",
+                "path": path.to_string_lossy(),
+                "mtime": mtime,
+                "entries": entries
             })).await.ok();
         },
         Action::TagEditorFolder { path, subdir, recursive } => {
