@@ -1,5 +1,12 @@
 # Plan: auto-refresh the file browser when a folder changes on disk
 
+**Verified 2026-08-23** against a live container, after two earlier claims of
+working that were not: queried `folderSignature` over the socket for a
+787-entry folder and got `entries=787`, `mtime=1787526874`, both matching the
+directory exactly, with an out-of-root path correctly refused by
+`paths::confine`. The client builds `"${mtime}:${entries}"` and reloads on a
+change, and `onetagger.ts` routes the reply to both views.
+
 **Status: built 2026-08-23, but not the way this plan proposed.** Shipped
 outside the fork entirely -- see *What was actually built* at the end. The
 analysis below still holds and is why the built version polls rather than
