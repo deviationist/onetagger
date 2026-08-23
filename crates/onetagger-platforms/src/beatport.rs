@@ -11,7 +11,24 @@ use onetagger_tag::FrameName;
 use onetagger_tagger::{supported_tags, Album, AudioFileInfo, AutotaggerSource, AutotaggerSourceBuilder, MatchingUtils, PlatformCustomOptionValue, PlatformCustomOptions, PlatformInfo, SupportedTag, TaggerConfig, Track, TrackMatch, TrackNumber};
 use serde_json::{json, Value};
 
-const INVALID_ART: &'static str = "ab2d1d04-233d-4b08-8234-9782b34dcab8";
+/// Asset ids Beatport serves when a release has no cover: a grey square with
+/// the Beatport logo. Embedding one is worse than embedding nothing -- it
+/// satisfies any "does this file have artwork" check downstream and then shows
+/// a Beatport logo in the player instead of a cover.
+///
+/// Matched on the asset id rather than on image bytes because the same
+/// placeholder is rendered at whatever resolution was asked for, and every
+/// rendering is a different file. Byte matching would need one entry per
+/// (id x resolution) and could never keep up; the id is stable across all of
+/// them.
+///
+/// More than one id is live at a time -- `ab2d1d04` was the only one listed
+/// here, while current API responses hand out `2d4f0a8c` for art-less
+/// releases, so placeholders were reaching files despite the guard.
+const INVALID_ART: &[&str] = &[
+    "ab2d1d04-233d-4b08-8234-9782b34dcab8",
+    "2d4f0a8c-f99a-4d0b-a41a-8c18a07c0511",
+];
 
 
 pub struct Beatport {
@@ -301,7 +318,7 @@ impl BeatportTrack {
 
     /// Get album art URL
     pub fn get_art(&self, art_resolution: u32) -> Option<String> {
-        if self.release.image.dynamic_uri.contains(&INVALID_ART) {
+        if INVALID_ART.iter().any(|id| self.release.image.dynamic_uri.contains(id)) {
             return None;
         }
         let r = art_resolution.to_string();
