@@ -19,7 +19,7 @@
 
         <div class="getting-started-cards flex flex-center column" style="min-height: 50px; width: 100%;">
             <div class="fit row no-wrap row justify-center content-center" style="overflow: hidden;">
-                <div class="text-subtitle1">
+                <div v-if="!viewHidden('/autotagger')" class="text-subtitle1">
                     <q-card class='col-3 rounded-borders' style="max-width: 400px; margin-left: 25px; margin-right: 25px;">
                         <q-card-section>
                             <div class='col-3 text-primary text-bold text-subtitle2'>AUTO TAG</div>
@@ -46,7 +46,7 @@
                     </q-card>
                 </div>
                 
-                <div class="text-subtitle1" style="overflow: auto;">
+                <div v-if="!viewHidden('/quicktag')" class="text-subtitle1" style="overflow: auto;">
                     <q-card class='col-3 rounded-borders' style="max-width: 400px; margin-left: 25px; margin-right: 25px;">
                         <q-card-section>
                             <div class='col-3 text-primary text-bold text-subtitle2'>QUICK TAG</div>

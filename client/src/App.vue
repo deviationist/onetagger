@@ -14,10 +14,10 @@
                             <q-route-tab :disable="$1t.lock.value.locked" to="/" class="text-weight-bolder" @click="hideSide">
                                 <q-icon name="mdi-home" size="sm"></q-icon>
                             </q-route-tab>
-                            <q-route-tab :disable="$1t.lock.value.locked" to="/autotagger" class="text-weight-bolder" @click="hideSide" >Auto tag</q-route-tab >
+                            <q-route-tab v-if="!viewHidden('/autotagger')" :disable="$1t.lock.value.locked" to="/autotagger" class="text-weight-bolder" @click="hideSide" >Auto tag</q-route-tab >
                             <q-route-tab v-if="!viewHidden('/audiofeatures')" :disable="$1t.lock.value.locked" to="/audiofeatures" class="text-weight-bolder" @click="audioFeatures" >Audio features</q-route-tab >
-                            <q-route-tab :disable="$1t.lock.value.locked" :to="folderLink('/quicktag')" class="text-weight-bolder" @click="showSide" >Quick Tag</q-route-tab >
-                            <q-route-tab :disable="$1t.lock.value.locked" :to="folderLink('/tageditor')" class="text-weight-bolder" @click="hideSide" >Edit Tags</q-route-tab >
+                            <q-route-tab v-if="!viewHidden('/quicktag')" :disable="$1t.lock.value.locked" :to="folderLink('/quicktag')" class="text-weight-bolder" @click="showSide" >Quick Tag</q-route-tab >
+                            <q-route-tab v-if="!viewHidden('/tageditor')" :disable="$1t.lock.value.locked" :to="folderLink('/tageditor')" class="text-weight-bolder" @click="hideSide" >Edit Tags</q-route-tab >
                             <q-route-tab v-if="!viewHidden('/renamer')" :disable="$1t.lock.value.locked" to="/renamer" class="text-weight-bolder" @click="hideSide" >Auto Rename</q-route-tab>
                         </q-tabs>
                     </div>
