@@ -563,7 +563,15 @@ function confirmDelete(target: string) {
 /// a failed delete arrives as an `error` instead, and the editor keeps what it
 /// had rather than clearing on optimism and claiming a still-present file is
 /// gone.
-function onDeleted(paths: string[]) {
+/// `quiet` suppresses only the notification, not the cleanup.
+///
+/// The cleanup here -- clear the open file, prune the custom list, refresh the
+/// listing -- is worth reusing for any "these paths are gone" event, but the
+/// message that goes with it says the files were *deleted*, which is wrong for
+/// a caller that moved them and reports that itself. Without this, such a
+/// caller either duplicates the cleanup or patches the notification out from
+/// the outside; both were tried, and both are worse than one optional flag.
+function onDeleted(paths: string[], quiet = false) {
     if (!paths || paths.length == 0) return;
 
     // Pending edits cannot be written to a file that has moved, and the
@@ -585,11 +593,13 @@ function onDeleted(paths: string[]) {
     if (searchQuery.value !== undefined) runLibrarySearch();
     else loadFiles();
 
-    $q.notify({
-        message: paths.length == 1 ? 'File deleted' : `${paths.length} files deleted`,
-        timeout: 2000,
-        position: 'top-right'
-    });
+    if (!quiet) {
+        $q.notify({
+            message: paths.length == 1 ? 'File deleted' : `${paths.length} files deleted`,
+            timeout: 2000,
+            position: 'top-right'
+        });
+    }
 }
 
 // If file is currently open
@@ -1053,7 +1063,7 @@ function wsCallback(e: any) {
             file.value = e.data;
             break;
         case 'deleteFiles':
-            onDeleted(e.paths);
+            onDeleted(e.paths, e.quiet === true);
             break;
         case 'tagEditorSave':
             $q.notify({
