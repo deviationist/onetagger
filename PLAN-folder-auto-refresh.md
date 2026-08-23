@@ -1,5 +1,17 @@
 # Plan: auto-refresh the file browser when a folder changes on disk
 
+**Controlled test 2026-08-23**: with Quick Tag and Edit Tags open in two
+separate windows, both visible, a file copied into `Needs-attention` appeared
+in both and a delete cleared it from both, neither reloaded.
+
+That test also found the one real gap. `pollFolderSignature` returns early
+while the tab is hidden, and nothing caught the listing up on the way back, so
+a change made while a tab sat in the background stayed invisible for up to a
+full interval after it was focused -- longer in practice, since browsers
+throttle background timers. Fixed by firing one poll on `visibilitychange`;
+the interval is unchanged. Two windows side by side are unaffected either way,
+both being visible.
+
 **Confirmed in the GUI 2026-08-23**: a file copied into `Needs-attention`
 appeared in both Quick Tag and Edit Tags with neither reloaded.
 
