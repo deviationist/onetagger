@@ -489,6 +489,27 @@ const sortMode = ref<BrowserSort>(migrateBrowserSort(url.read('sort') ?? $1t.set
 const sortDescending = ref<boolean>(url.readBool('desc') ?? ($1t.settings.value.tagEditorSortDescending === true));
 
 
+/// Last known folder signature, so a change can be told from a first look.
+/// Reset whenever the folder changes, or the new folder's first reply would
+/// read as a change and cause a redundant reload.
+const lastSignature = ref<string | undefined>(undefined);
+let signatureTimer: any = undefined;
+
+/// Ask whether the folder changed underneath us.
+///
+/// Polling rather than a filesystem watcher: inotify only reports changes made
+/// through the local kernel, so on a network share it would catch some and
+/// silently miss others depending on which machine moved the file. Missing
+/// half the events while looking like it works is worse than not watching.
+///
+/// Skipped when the tab is hidden -- a background tab polling a network mount
+/// forever is pure waste.
+function pollFolderSignature() {
+    if (document.visibilityState !== 'visible') return;
+    if (!path.value) return;
+    $1t.send('folderSignature', { path: path.value });
+}
+
 function loadFiles(f?: string) {
     $1t.send('tagEditorFolder', {path: path.value, subdir: f});
 }
@@ -980,6 +1001,20 @@ function wsCallback(e: any) {
             path.value = e.path;
             loadFiles();
             break;
+        // The folder changed on disk. Re-list it, unless a search result set is
+        // on screen -- that is not a folder listing and a reload would replace
+        // it with one.
+        case 'folderSignature':
+            if (e.path !== path.value) break;          // a stale reply for a folder we left
+            var sig = `${e.mtime}:${e.entries}`;
+            if (lastSignature.value === undefined) {
+                lastSignature.value = sig;             // first sighting is a baseline
+                break;
+            }
+            if (lastSignature.value === sig) break;
+            lastSignature.value = sig;
+            if (searchQuery.value === undefined) loadFiles();
+            break;
         case 'tagEditorFolder':
             if (e.recursive) {
                 // Add dir to custom list
@@ -990,6 +1025,7 @@ function wsCallback(e: any) {
                 customList.value = [... new Set(files)];
             } else {
                 path.value = e.path;
+                lastSignature.value = undefined;
                 url.write({ path: e.path });
                 // Dirs first, then per the user's chosen sort mode
                 originalFiles.value = sortBrowserEntries(e.files, sortMode.value, sortDescending.value) as any[];
@@ -1063,6 +1099,7 @@ $1t.onTagEditorSearchEvent = (json: any) => {
 };
 
 onMounted(() => {
+    signatureTimer = setInterval(pollFolderSignature, 8000);
     $1t.onTagEditorEvent = wsCallback;
     // A restored ?scope=library link searches rather than listing a folder.
     if (scope.value == 'library' && (filter.value ?? '').trim()) {
@@ -1082,6 +1119,7 @@ onMounted(() => {
 
 // Unregister
 onDeactivated(() => {
+    if (signatureTimer) { clearInterval(signatureTimer); signatureTimer = undefined; }
     $1t.onTagEditorEvent = () => {};
 })
 
