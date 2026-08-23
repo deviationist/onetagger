@@ -1065,6 +1065,40 @@ async function copyFilename() {
 /// reply. Serialized rather than held by reference on purpose -- see `save`.
 let pendingSave: string[] = [];
 
+/// Close the open file when it is no longer in the folder.
+///
+/// A file can leave underneath the editor -- moved on by the pipeline, or
+/// deleted outside the app. The folder poll re-lists the directory, but the
+/// open file is held separately, so without this the editor goes on showing
+/// something that is not there, and `loadFile`'s autosave would try to write
+/// to it on the very next click.
+///
+/// Only files that belonged to the folder just listed are considered, so a
+/// file opened from the custom list or a deep link into another directory is
+/// left alone.
+function closeIfFileVanished(listedPath: string, listed: any[]) {
+    if (!file.value) return;
+    const p = file.value.path;
+    const cut = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+    if (cut < 1 || p.slice(0, cut) !== listedPath) return;
+    if (listed.some((f: any) => f.path === p)) return;
+
+    // Say so when there was work in progress. Silence would read as the editor
+    // having quietly discarded the edits, when in fact the file left.
+    const pending = changes.value.length;
+    file.value = undefined;
+    changes.value = [];
+    url.write({ file: undefined });
+    if (pending > 0) {
+        $q.notify({
+            message: 'The open file is gone -- unsaved changes discarded',
+            color: 'warning',
+            timeout: 6000,
+            position: 'top-right'
+        });
+    }
+}
+
 // Save to file
 function save() {
     // Staged edits are cleared when the write is *confirmed*, not when it is
@@ -1148,6 +1182,7 @@ function wsCallback(e: any) {
                 searchQuery.value = undefined;
                 searchTruncated.value = false;
                 applyFolderFilter();
+                closeIfFileVanished(e.path, e.files);
                 // Deep link: open the requested file once the folder holding it
                 // has loaded. Guarded so navigating away later doesn't reopen it.
                 if (pendingUrlFile.value) {
