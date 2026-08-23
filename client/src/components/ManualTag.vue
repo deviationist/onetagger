@@ -31,6 +31,20 @@
                                         :model-value="selected.includes(match)"
                                         @update:model-value="(v: any) => toggleMatch(match)"
                                     ></q-checkbox>
+                                    <!-- Which position this match holds in the
+                                         merge. Only shown once more than one is
+                                         selected, because with a single match
+                                         there is no precedence to explain. -->
+                                    <q-badge
+                                        v-if='selected.length > 1 && selected.includes(match)'
+                                        :color='selectionIndex(match) === 1 ? "primary" : "grey-7"'
+                                        :label='selectionIndex(match)'
+                                        class='q-ml-xs'
+                                    >
+                                        <q-tooltip>{{ selectionIndex(match) === 1
+                                            ? 'Base match — its fields win'
+                                            : 'Fills only the fields still empty' }}</q-tooltip>
+                                    </q-badge>
                                 </div>
                                 <!-- Open URL -->
                                 <q-btn 
@@ -120,6 +134,15 @@
                 :loading='$1t.manualTag.value.busy'
             >Start</q-btn>
         </div>
+        <!-- What a multi-select actually does. Merging has always worked; the
+             dialog never said so, and selection order silently decided which
+             source won a contested field. -->
+        <div class='q-px-sm text-caption text-grey-6' v-if='selected.length > 1'
+             style='max-width: 420px; line-height: 1.35;'>
+            Merging {{selected.length}} matches: fields come from
+            <span class='text-primary'>#1</span>, and the rest fill only what it
+            leaves empty. Untick and re-tick to change the order.
+        </div>
         <!-- Apply -->
         <div class='q-px-sm' v-if='selected.length > 0'>
             <q-btn 
@@ -207,6 +230,13 @@ function start() {
 }
 
 /// Add or remove match
+/// 1-based position in the merge, which is selection order rather than the
+/// order shown: `toggleMatch` pushes on tick, and the server takes the first
+/// as the base. That is invisible without this.
+function selectionIndex(match: TrackMatch): number {
+    return selected.value.indexOf(match) + 1;
+}
+
 function toggleMatch(match: TrackMatch) {
     let i = selected.value.indexOf(match);
     if (i != -1) {
