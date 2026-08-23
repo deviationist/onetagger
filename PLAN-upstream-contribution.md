@@ -51,13 +51,16 @@ a clean-looking diff does not.
 Confidence is stated because only the first group has been verified by building
 it; the rest is read from the diffs.
 
-### Already correct — on `upstream/master`, nothing to do
+### Correctly based on `upstream/master`
+
+Being on the right base is necessary, not sufficient: a branch can sit on
+upstream and still have drifted behind what `main` actually ships.
 
 | Branch | Notes |
 |---|---|
 | `pr/aiff-name-chunk-sync` | 1 commit over upstream |
 | `pr/wss-https-scheme` | 1 commit over upstream |
-| `pr/docker-support` | 3 commits over upstream, still unmerged here |
+| `pr/docker-support` | **Stale.** 3 commits over upstream, but 29 lines of `Dockerfile` and 46 of `docker-compose.yml` behind what `main` runs — it would contribute a setup we have outgrown. Refresh against `main` before offering it. |
 | `pr/beatport-placeholder-ids` | 1 commit; verified compiling on the upstream base |
 
 ### Free wins — small, self-contained, pure bug fixes
