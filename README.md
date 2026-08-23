@@ -172,6 +172,13 @@ plain copy of upstream.
 Upstream changes come in by merging `upstream/master` into `main`. Nothing
 upstream is removed, so `main` stays a superset rather than a divergence.
 
+A `pr/` branch is **not** an alternative to shipping a change here: it is
+branched from `upstream/master` and then merged into `main` like anything else,
+so the one branch is both a ready-to-send PR and part of this fork's build. That
+only works if the base is chosen *before* the change is written — start it on
+`main` and it will grow to depend on whatever else is already there, after which
+it cannot be lifted out without being rewritten.
+
 One caveat on naming a branch `pr/`: generally useful is not the same as
 contributable. A change that reads state our own features introduced will not
 apply over there, however clean it looks here — contributing it means writing a
