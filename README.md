@@ -166,8 +166,21 @@ plain copy of upstream.
 | Branch | What it is |
 |---|---|
 | `main` | Upstream plus our work. The branch to build and to run. |
-| `feature/<name>` | Our own work, not intended for upstream — or not yet. Merged into `main`. |
-| `pr/<name>` | Work meant to be contributed upstream. Branched from **`upstream/master`**, not from `main`, so the diff carries nothing of ours. |
+| `pr/<type>-<name>` | Branched from **`upstream/master`**, so its diff carries nothing of ours and a PR can be opened from it as-is. |
+| `feature/<name>` | New capability, based on `main`. |
+| `fix/<name>` | A correction to existing behaviour, based on `main`. |
+| `docs/<name>` | Documentation, based on `main`. |
+
+The prefix answers *can this be sent upstream?*; for `pr/` branches the next
+token (`pr/fix-…`, `pr/feat-…`) answers *what is it?*. Only `pr/` makes a claim
+about the base, and it is a checkable one —
+`git rev-list --count upstream/master..<branch>` should be a handful of commits,
+not dozens.
+
+The distinction is capability, not intent. Plenty of the `fix/` work would be
+welcome upstream; it simply cannot be *sent* from a branch whose diff against
+`upstream/master` is seventy commits of unrelated work. Which it is depends on
+the base, and the base is chosen before the first line is written.
 
 Upstream changes come in by merging `upstream/master` into `main`. Nothing
 upstream is removed, so `main` stays a superset rather than a divergence.
