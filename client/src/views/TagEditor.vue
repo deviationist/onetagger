@@ -1061,8 +1061,20 @@ async function copyFilename() {
     }
 }
 
+/// Snapshots of the edits handed to the last `tagEditorSave`, awaiting a
+/// reply. Serialized rather than held by reference on purpose -- see `save`.
+let pendingSave: string[] = [];
+
 // Save to file
 function save() {
+    // Staged edits are cleared when the write is *confirmed*, not when it is
+    // sent. A commit can fail server-side -- undecodable artwork, a read-only
+    // file, a tag the format cannot carry -- and that arrives as an `error`
+    // event, not as a `tagEditorSave` one. Clearing on send meant a failed
+    // write threw the edits away behind an error toast, so the file still held
+    // its old values and nothing was left staged to retry.
+    pendingSave = changes.value.map((c) => JSON.stringify(c));
+
     $1t.send('tagEditorSave', {
         changes: {
             path: file.value.path, 
@@ -1071,7 +1083,24 @@ function save() {
             id3v24: id3v24.value
         }
     });
-    changes.value = [];
+}
+
+/// Drop the confirmed edits, keeping anything staged while the save was in
+/// flight.
+///
+/// Matched on serialized value rather than object identity because `onChange`
+/// updates an existing entry in place: an edit made to the same tag before the
+/// reply landed would still be the same object, and identity matching would
+/// discard it along with the value that was actually written.
+function clearSaved() {
+    const outstanding = pendingSave.slice();
+    changes.value = changes.value.filter((c) => {
+        const i = outstanding.indexOf(JSON.stringify(c));
+        if (i === -1) return true;
+        outstanding.splice(i, 1);
+        return false;
+    });
+    pendingSave = [];
 }
 
 function saveSettings() {
@@ -1136,6 +1165,7 @@ function wsCallback(e: any) {
             onDeleted(e.paths, e.quiet === true);
             break;
         case 'tagEditorSave':
+            clearSaved();
             $q.notify({
                 message: 'Tags written!',
                 timeout: 4000,
