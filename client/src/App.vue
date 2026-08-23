@@ -15,10 +15,10 @@
                                 <q-icon name="mdi-home" size="sm"></q-icon>
                             </q-route-tab>
                             <q-route-tab :disable="$1t.lock.value.locked" to="/autotagger" class="text-weight-bolder" @click="hideSide" >Auto tag</q-route-tab >
-                            <q-route-tab :disable="$1t.lock.value.locked" to="/audiofeatures" class="text-weight-bolder" @click="audioFeatures" >Audio features</q-route-tab >
+                            <q-route-tab v-if="!viewHidden('/audiofeatures')" :disable="$1t.lock.value.locked" to="/audiofeatures" class="text-weight-bolder" @click="audioFeatures" >Audio features</q-route-tab >
                             <q-route-tab :disable="$1t.lock.value.locked" :to="folderLink('/quicktag')" class="text-weight-bolder" @click="showSide" >Quick Tag</q-route-tab >
                             <q-route-tab :disable="$1t.lock.value.locked" :to="folderLink('/tageditor')" class="text-weight-bolder" @click="hideSide" >Edit Tags</q-route-tab >
-                            <q-route-tab :disable="$1t.lock.value.locked" to="/renamer" class="text-weight-bolder" @click="hideSide" >Auto Rename</q-route-tab>
+                            <q-route-tab v-if="!viewHidden('/renamer')" :disable="$1t.lock.value.locked" to="/renamer" class="text-weight-bolder" @click="hideSide" >Auto Rename</q-route-tab>
                         </q-tabs>
                     </div>
 
@@ -137,6 +137,11 @@ import LogoText from './components/LogoText.vue';
 
 const $1t = get1t();
 
+/// Whether a view has been hidden in settings.
+function viewHidden(route: string): boolean {
+    return ($1t.settings.value.hiddenViews ?? []).includes(route);
+}
+
 /// Destination for a view switch, carrying the folder currently in use.
 ///
 /// Both folder-aware views already fall back to `settings.path` when the URL
@@ -159,6 +164,21 @@ function folderLink(route: string) {
 }
 const $q = useQuasar();
 const router = useRouter();
+
+/// Hidden views are unreachable, not merely unlisted: a bookmark, a typed URL
+/// or a stale deep link would otherwise walk straight past the tab bar into a
+/// feature the install has switched off.
+router.beforeEach((to) => {
+    return viewHidden(to.path) ? { path: '/' } : true;
+});
+
+/// Settings arrive over the socket after the first route resolves, so the
+/// guard above cannot see them on a cold load -- someone opening a hidden
+/// view directly would land on it before the answer was known. Leave once it
+/// is.
+watch(() => $1t.settings.value.hiddenViews, () => {
+    if (viewHidden(router.currentRoute.value.path)) router.replace('/');
+}, { deep: true });
 
 const left = ref(false);
 const right = ref(false);

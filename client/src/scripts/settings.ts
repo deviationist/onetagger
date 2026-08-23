@@ -20,6 +20,13 @@ class Settings {
     externalAudioPlayer: boolean = false;
     devtools: boolean = false;
 
+    /// Top-level views hidden from the navigation, by route name.
+    ///
+    /// A list rather than a boolean per view: which views are worth hiding is
+    /// a matter of what an install is used for, and an installation that only
+    /// tags does not want the ones it never opens taking up the tab bar.
+    hiddenViews: string[] = [];
+
     renamer: RenamerSettings = new RenamerSettings();
     quickTag: QuickTagSettings = new QuickTagSettings();
     audioFeatures: AudioFeaturesSettings = new AudioFeaturesSettings();
