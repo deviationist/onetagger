@@ -431,6 +431,18 @@ class OneTagger {
 
     // Open URL in external browser
     url(url: string) {
+        // In server mode the UI is already running in a browser, so open the
+        // link here. Asking the backend to do it means calling `webbrowser` on
+        // the machine running the server -- which on a headless box or in a
+        // container has no browser at all, and answers "No valid browsers
+        // detected" to a user whose browser is plainly working.
+        //
+        // The desktop build still goes through the backend: there the UI is a
+        // webview, and window.open inside it does not reach the real browser.
+        if (this.info.value?.startContext?.serverMode) {
+            window.open(url, '_blank', 'noopener');
+            return;
+        }
         this.send('browser', {url});
     }
 
