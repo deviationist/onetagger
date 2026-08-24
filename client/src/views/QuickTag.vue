@@ -641,6 +641,18 @@ const saveButton = ref<any>();
 const lastSignature = ref<string | undefined>(undefined);
 let signatureTimer: any = undefined;
 
+/// The path named by a query param in the URL as it stands *now*.
+///
+/// `url.read` deliberately returns a mount-time snapshot so a restore cannot
+/// read back its own writes, which makes it the wrong tool here: what matters
+/// is whether the link currently points at a file that is gone.
+function linkedPath(key: string): string | null {
+    const hash = window.location.hash || '';
+    const q = hash.indexOf('?');
+    if (q === -1) return null;
+    return new URLSearchParams(hash.slice(q + 1)).get(key);
+}
+
 function pollFolderSignature() {
     if (document.visibilityState !== 'visible') return;
     const p = $1t.settings.value.path;
@@ -739,19 +751,20 @@ onMounted(() => {
                 // showing a file that is gone. Only `removeAll` exists, so any
                 // missing member clears the selection; in practice it is one
                 // track.
+                const present = new Set($1t.quickTag.value.tracks.map((t: any) => t.path));
                 const sel = $1t.quickTag.value.track.tracks;
-                if (sel.length > 0) {
-                    const present = new Set($1t.quickTag.value.tracks.map((t: any) => t.path));
-                    if (sel.some((t: any) => !present.has(t.path))) {
-                        $1t.quickTag.value.track.removeAll();
-                        // The selection is mirrored into the hash for deep
-                        // links, and things outside the app read it from there
-                        // -- the injected pipeline buttons among them. Leaving
-                        // a vanished track in the URL leaves them offering to
-                        // act on a file that is gone.
-                        url.write({ track: undefined });
-                    }
+                if (sel.length > 0 && sel.some((t: any) => !present.has(t.path))) {
+                    $1t.quickTag.value.track.removeAll();
                 }
+                // Clear the deep link on its own terms rather than as a side
+                // effect of clearing the selection. The two can already be out
+                // of step -- a reload can leave the selection empty while the
+                // hash still names the old track -- and the hash is the half
+                // that outside readers see, the injected pipeline buttons among
+                // them. Tying the two together left those buttons live over a
+                // file that was gone, which a refresh then silently fixed.
+                const linkedTrack = linkedPath('track');
+                if (linkedTrack && !present.has(linkedTrack)) url.write({ track: undefined });
 
                 // Deep link: ?track= selects that file once the list is loaded.
                 // Must run before the trackIndex restore below, which early-
