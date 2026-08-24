@@ -1,5 +1,14 @@
 # Plan: auto-refresh the file browser when a folder changes on disk
 
+**Vanish handling confirmed 2026-08-24**: with the track selected in both
+views, deleting it cleared the listing, closed the Edit Tags pane, dropped the
+Quick Tag selection, and removed the deep link -- which is what takes the
+injected pipeline buttons with it. Getting there needed three separate fixes:
+closing the open file at all, clearing the hash independently of the selection
+(the two can be out of step, and the hash is what outside readers see), and
+reconnecting the websocket, without which a dropped socket froze the page and
+made every symptom look like a refresh bug.
+
 **Controlled test 2026-08-23**: with Quick Tag and Edit Tags open in two
 separate windows, both visible, a file copied into `Needs-attention` appeared
 in both and a delete cleared it from both, neither reloaded.
