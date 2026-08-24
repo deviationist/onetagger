@@ -35,7 +35,26 @@ impl AudioPlayer {
             let mut volume = 0.5;
             let mut source = None;
             // Create sink (Now DeviceSinkBuilder in rodio 0.22)
-            let stream_handle = rodio::DeviceSinkBuilder::open_default_sink().unwrap();
+            //
+            // A headless host has no audio device, and a container never does.
+            // Preview is the only feature that needs one, so its absence must
+            // not cost anything else: this used to unwrap and kill the thread,
+            // leaving every later command writing into a channel with no
+            // reader, and `seek` unwrapping the resulting error.
+            let stream_handle = match rodio::DeviceSinkBuilder::open_default_sink() {
+                Ok(handle) => handle,
+                Err(e) => {
+                    warn!("No audio output device ({e}); preview is disabled");
+                    // Keep draining, so senders do not pile up, and keep
+                    // answering the one caller that waits for a reply.
+                    for action in rx {
+                        if let PlayerAction::Seek(_) = action {
+                            tx.send(false).ok();
+                        }
+                    }
+                    return;
+                }
+            };
             let mut player = rodio::Player::connect_new(&stream_handle.mixer());
             player.set_volume(volume);
             player.pause();
@@ -117,8 +136,10 @@ impl AudioPlayer {
 
     pub fn seek(&self, pos: u64) -> bool {
         self.tx.send(PlayerAction::Seek(pos)).ok();
-        // Wait for ready
-        self.rx.recv().unwrap()
+        // Wait for ready. A closed channel means the player thread is gone;
+        // report not-playing rather than unwrapping, which would panic the
+        // caller -- and the caller is the websocket task.
+        self.rx.recv().unwrap_or(false)
     }
 
     pub fn volume(&self, volume: f32) {
