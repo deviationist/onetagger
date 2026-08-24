@@ -83,12 +83,11 @@
                                 <span class='text-caption text-weight-bold text-grey-4'>{{ match.track.genres.join(", ") }}</span>
                             </span>
                             <span v-if='trackLength(match.track)'>
-                                <q-badge outline color='grey-9'><span class='text-uppercase text-grey-6'>Length</span></q-badge>
+                                <q-badge outline color='grey-9' class='q-mx-xs'><span class='text-uppercase text-grey-6'>Length</span></q-badge>
                                 <span class='text-caption monospace text-weight-medium text-grey-4'>{{ trackLength(match.track) }}</span>
                                 <span v-if='lengthDelta(match.track) !== undefined'
                                       class='text-caption monospace text-weight-medium q-ml-xs'
                                       :class='deltaColor(lengthDelta(match.track)!)'>{{ deltaLabel(lengthDelta(match.track)!) }}</span>
-                                <span class='q-px-sm'></span>
                             </span>
                             <span v-if='match.track.bpm'>
                                 <q-badge outline color='grey-9' class='q-mx-xs'><span class='text-uppercase text-grey-6'>BPM</span></q-badge>
