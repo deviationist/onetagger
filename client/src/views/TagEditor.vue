@@ -1065,6 +1065,18 @@ async function copyFilename() {
 /// reply. Serialized rather than held by reference on purpose -- see `save`.
 let pendingSave: string[] = [];
 
+/// The path named by a query param in the URL as it stands *now*.
+///
+/// `url.read` deliberately returns a mount-time snapshot so a restore cannot
+/// read back its own writes, which makes it the wrong tool here: what matters
+/// is whether the link currently points at a file that is gone.
+function linkedPath(key: string): string | null {
+    const hash = window.location.hash || '';
+    const q = hash.indexOf('?');
+    if (q === -1) return null;
+    return new URLSearchParams(hash.slice(q + 1)).get(key);
+}
+
 /// Close the open file when it is no longer in the folder.
 ///
 /// A file can leave underneath the editor -- moved on by the pipeline, or
@@ -1077,6 +1089,15 @@ let pendingSave: string[] = [];
 /// file opened from the custom list or a deep link into another directory is
 /// left alone.
 function closeIfFileVanished(listedPath: string, listed: any[]) {
+    // The hash can name a file the editor no longer holds open, and outside
+    // readers -- the injected pipeline buttons -- go by the hash. Clear it
+    // whenever it points into this folder at something that is not there.
+    const linkedFile = linkedPath('file');
+    if (linkedFile && !listed.some((f: any) => f.path === linkedFile)) {
+        const cutL = Math.max(linkedFile.lastIndexOf('/'), linkedFile.lastIndexOf('\\'));
+        if (cutL > 0 && linkedFile.slice(0, cutL) === listedPath) url.write({ file: undefined });
+    }
+
     if (!file.value) return;
     const p = file.value.path;
     const cut = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
