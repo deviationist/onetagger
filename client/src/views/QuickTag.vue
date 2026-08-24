@@ -742,7 +742,15 @@ onMounted(() => {
                 const sel = $1t.quickTag.value.track.tracks;
                 if (sel.length > 0) {
                     const present = new Set($1t.quickTag.value.tracks.map((t: any) => t.path));
-                    if (sel.some((t: any) => !present.has(t.path))) $1t.quickTag.value.track.removeAll();
+                    if (sel.some((t: any) => !present.has(t.path))) {
+                        $1t.quickTag.value.track.removeAll();
+                        // The selection is mirrored into the hash for deep
+                        // links, and things outside the app read it from there
+                        // -- the injected pipeline buttons among them. Leaving
+                        // a vanished track in the URL leaves them offering to
+                        // act on a file that is gone.
+                        url.write({ track: undefined });
+                    }
                 }
 
                 // Deep link: ?track= selects that file once the list is loaded.
