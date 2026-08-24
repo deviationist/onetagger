@@ -3,34 +3,20 @@
 Wishlist for this fork. Items graduate to a `PLAN-*.md` when they are worth
 designing properly.
 
-## Dynamic tab title
+## Dynamic tab title -- done 2026-08-24
 
-The document title is the constant "One Tagger", so every tab and window looks
-identical in the tab strip, the taskbar and the window switcher. With Quick Tag
-and Edit Tags open side by side -- the normal way this fork gets used -- there
-is nothing to tell them apart.
+The tab is named after the open view: `Edit Tags - OneTagger`, `Quick Tag -
+OneTagger`, and so on, falling back to plain `OneTagger` on the landing page.
+Two windows side by side can now be told apart in the tab strip and the window
+switcher, which is the normal way this fork gets used.
 
-Make it reflect what is on screen. Roughly, most specific part first, since tab
-strips truncate from the right:
+Route `meta.title` plus a `router.afterEach` hook, so a new view declares its
+name where the route is declared and nothing else has to know. The view comes
+first because tab strips truncate from the right.
 
-    ALT (Interlude) -- Edit Tags -- OneTagger      (a file is open)
-    Needs-attention -- Edit Tags -- OneTagger      (a folder, no file)
-    Quick Tag -- OneTagger                         (no folder context)
-
-Worth folding in: unsaved changes could show as a leading marker, the way
-editors do, which would make an unsaved window findable without clicking
-through them.
-
-Spelling: the project uses both. `OneTagger` wins 85 occurrences to 11, and
-owns the repo, crates, binary and image tag; the spaced `One Tagger` survives
-in the user-visible strings -- `<title>`, the native window title, the
-window-size warning, two tooltips. Use `OneTagger` in the new title and leave
-the existing strings alone: changing them is a cosmetic diff that would
-conflict on every rebase against upstream for no functional gain.
-
-Client-side only -- a watcher on the view, folder and open file writing
-`document.title`. No backend involvement, and it is generic rather than
-homelab-specific, so it belongs in the image.
+Not done, and worth having if it ever irritates: the open **file** or folder in
+the title, and a leading marker for unsaved changes the way editors do -- which
+would make an unsaved window findable without clicking through them.
 
 ## Manual Tag merge discoverability -- done
 
