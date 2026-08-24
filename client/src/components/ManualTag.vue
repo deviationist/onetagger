@@ -259,15 +259,23 @@ function deltaLabel(delta: number): string {
     return `${sign}${Math.floor(a / 60)}:${String(a % 60).padStart(2, '0')}`;
 }
 
-/// Green within a few seconds, amber within half a minute, red beyond.
+/// Two bands, and only one of them is ours to choose.
 ///
-/// The thresholds match `max_duration_difference`, whose default is 30s, so the
-/// colours agree with what the matcher itself would have accepted rather than
-/// inventing a second opinion.
+/// The outer bound is `max_duration_difference`, whose default is 30s: beyond
+/// it the matcher would have rejected the candidate outright, so red means
+/// "this would not have matched automatically" rather than a taste judgement.
+///
+/// The inner bound has no equivalent in OneTagger's config, so 15s is a
+/// choice: wide enough to absorb the sloppy durations platforms report --
+/// rounding, a counted fade, a silent tail -- and tight enough that two mixes
+/// of one track rarely both land in it.
+const CLOSE_ENOUGH_SECONDS = 15;
+const MAX_DURATION_DIFFERENCE = 30;
+
 function deltaColor(delta: number): string {
     const a = Math.abs(delta);
-    if (a <= 5) return 'text-green-5';
-    if (a <= 30) return 'text-orange-5';
+    if (a <= CLOSE_ENOUGH_SECONDS) return 'text-green-5';
+    if (a <= MAX_DURATION_DIFFERENCE) return 'text-orange-5';
     return 'text-red-5';
 }
 
