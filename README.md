@@ -198,6 +198,22 @@ apply over there, however clean it looks here — contributing it means writing 
 reduced variant, not pushing the branch.
 
 
+## Naming
+
+**It is written `OneTagger`.** One word, capital T, in code, comments, commits,
+documentation and any user-visible text this fork adds.
+
+Upstream is split on this: on `master` the closed form outnumbers the spaced
+`One Tagger` roughly six to one, and owns the repository, the crates, the
+binary and the image tag -- but the spaced form survives in a handful of
+strings the user actually sees, among them the window title, the
+minimum-window-size warning and two tooltips.
+
+Those inherited strings are **left alone**. Rewriting them is a cosmetic diff
+that touches files we have no other reason to modify, and it would conflict on
+every rebase against upstream for nothing. The rule applies to what we write,
+not to what we inherited.
+
 ## Installing
 
 You can download latest binaries from [releases](https://github.com/Marekkon5/onetagger/releases)
