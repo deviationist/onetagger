@@ -1,5 +1,22 @@
 # Plan: getting this fork's work upstream
 
+## Websocket + player fixes, ready to become PRs (2026-08-24)
+
+Four defects found while debugging a frozen tab, all verified present on
+`upstream/master`, all fixed on `main` in commit `e8f9685` (plus `6192119`
+for the deep-link half, which is ours and not upstream's concern).
+
+| Candidate branch | What it fixes | Adaptation needed |
+|---|---|---|
+| `pr/fix-empty-websocket-frame` | Close frame parsed as JSON -> spurious EOF error + send-after-close | **cut, done** |
+| `pr/fix-websocket-reconnect` | Client never reconnects, so any drop bricks the page until reload | applies to upstream's `onetagger.ts` roughly unchanged |
+| `pr/fix-player-without-audio-device` | `AudioPlayer::new` panics with no sound card; `seek()` unwraps the resulting closed channel | must be rewritten for upstream's older rodio -- `OutputStream::try_default()` + `Sink::try_new()`, two unwraps rather than our one |
+
+The reconnect one is the headline: it turns every transient drop into a
+permanent freeze that a reload silently fixes, which is exactly the shape of
+bug that generates unreproducible reports for years. Worth splitting three
+ways rather than bundling -- small independent PRs merge, grab-bags stall.
+
 **Status: deferred (2026-08-23).** Deliberately last. The fork exists to fit
 this library's workflow, and that comes first; contributing back is what
 happens once it does, not something to interleave with it.
