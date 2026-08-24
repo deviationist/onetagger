@@ -27,20 +27,11 @@ class OneTagger {
     taggerStatus: Ref<TaggerStatus> = ref(new TaggerStatus());
     autoTaggerPlaylist: Ref<Playlist> = ref({});
     manualTag: Ref<ManualTag> = ref(new ManualTag());
-    /// Root a library search walks from, taken from the server's start path
-    /// (--path / ONETAGGER_PATH). Undefined when the server was started without
-    /// one, in which case callers fall back to the current folder.
-    libraryRoot: Ref<string | undefined> = ref(undefined);
 
     // Websocket
     private ws!: WebSocket;
     private wsPromiseResolve?: (_: any) => void;
     private wsPromise?;
-
-    /// Reconnect backoff, in ms, reset on a successful open.
-    private wsReconnectDelay = 1000;
-    /// Whether the current gap follows a drop, so it can be reported once.
-    private wsWasDropped = false;
 
     // Quicktag track loading
     private nextQTTrack?: QTTrack;
@@ -58,13 +49,31 @@ class OneTagger {
 
         // WS connection promise
         this.wsPromise = new Promise((res) => this.wsPromiseResolve = res);
-        this.connectSocket();
+        // Setup WS connection
+        this.ws = new WebSocket(wsUrl());
+        this.ws.addEventListener('error', (e) => this.onError(e ?? 'Websocket error!'));
+        this.ws.addEventListener('close', (_) => this.onError('WebSocket closed!'));
+        this.ws.addEventListener('open', (_) => {
+            // Resolve connection promise
+            if (this.wsPromiseResolve) {
+                this.wsPromiseResolve(null);
+                this.wsPromiseResolve = undefined;
+            }
 
-        // A tab coming back into view is the moment a dead socket is noticed,
-        // so try immediately rather than waiting out the backoff.
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible'
-                && this.ws.readyState === WebSocket.CLOSED) this.connectSocket();
+            // Load initial data
+            this.send('loadSettings');
+            setTimeout(() => {
+                this.send('init');
+                this.send('spotifyAuthorized');
+                // Load platforms
+                setTimeout(() => this.loadPlatforms(), 25);
+            }, 100);
+        });
+        this.ws.addEventListener('message', (event) => {
+            // Parse incoming message
+            let json = JSON.parse(event.data);
+            if (!json.action) return;
+            this.incomingEvent(json);
         });
 
         // Keybinds
@@ -88,70 +97,11 @@ class OneTagger {
         });
     }
 
-    /// Open the socket, and keep it open.
-    ///
-    /// The connection used to be made once, in the constructor, with `close`
-    /// wired to nothing but an error toast. Anything that dropped it -- a
-    /// sleeping laptop, a Wi-Fi roam, a container restart under the reverse
-    /// proxy -- left the page permanently deaf: sends went to a closed socket,
-    /// clicks did nothing, listings froze at their last state, and only a
-    /// manual reload brought it back. Every "it worked after I refreshed" is
-    /// this.
-    private connectSocket() {
-        this.ws = new WebSocket(wsUrl());
-        this.ws.addEventListener('error', (e) => this.onError(e ?? 'Websocket error!'));
-        this.ws.addEventListener('close', (_) => this.scheduleReconnect());
-        this.ws.addEventListener('open', (_) => {
-            this.wsReconnectDelay = 1000;
-            // Resolve connection promise
-            if (this.wsPromiseResolve) {
-                this.wsPromiseResolve(null);
-                this.wsPromiseResolve = undefined;
-            }
-            if (this.wsWasDropped) {
-                this.wsWasDropped = false;
-                this.onSocketRestored();
-            }
-
-            // Load initial data
-            this.send('loadSettings');
-            setTimeout(() => {
-                this.send('init');
-                this.send('spotifyAuthorized');
-                // Load platforms
-                setTimeout(() => this.loadPlatforms(), 25);
-            }, 100);
-        });
-        this.ws.addEventListener('message', (event) => {
-            // Parse incoming message
-            let json = JSON.parse(event.data);
-            if (!json.action) return;
-            this.incomingEvent(json);
-        });
-    }
-
-    /// Retry with a widening gap, reported once rather than per attempt.
-    private scheduleReconnect() {
-        if (!this.wsWasDropped) {
-            this.wsWasDropped = true;
-            this.onError('Connection lost - reconnecting');
-        }
-        const delay = this.wsReconnectDelay;
-        this.wsReconnectDelay = Math.min(delay * 2, 10000);
-        setTimeout(() => {
-            if (this.ws.readyState === WebSocket.CLOSED) this.connectSocket();
-        }, delay);
-    }
-
-    /// SHOULD BE OVERWRITTEN -- lets the UI say the connection came back.
-    onSocketRestored() {}
-
     // SHOULD BE OVERWRITTEN
     quickTagUnfocus() {}
     onTaggingDone(_: any) {}
     onQuickTagEvent(_: any, __?: any) {}
     onQuickTagBrowserEvent(_: any) {}
-    onTagEditorSearchEvent(_: any) {}
     onTagEditorEvent(_: any) {}
     onAudioFeaturesEvent(_: any) {}
     onRenamerEvent(_: any) {}
@@ -181,10 +131,6 @@ class OneTagger {
         }
         let data = { action };
         Object.assign(data, params);
-        // Dropping is right: every caller is either a poll that will come round
-        // again or a user action that will be retried. Throwing here only
-        // filled the console while the reconnect was already in flight.
-        if (this.ws.readyState !== WebSocket.OPEN) return;
         this.ws.send(JSON.stringify(data));
     }
 
@@ -201,10 +147,6 @@ class OneTagger {
                 if (json.startContext.startPath) {
                     this.settings.value.path = json.startContext.startPath;
                     this.config.value.path = json.startContext.startPath;
-                    // The root a library search walks from. Kept apart from
-                    // settings.path (moves as you browse) and config.path (the
-                    // Autotagger's, reassigned by its own browse dialogs).
-                    this.libraryRoot.value = json.startContext.startPath;
                 }
 
                 this.info.value.ready = true;
@@ -244,21 +186,6 @@ class OneTagger {
             // Path selected
             case 'browse':
                 this.onBrowse(json);
-                break;
-            // A delete finished on disk. Both views wait for this before
-            // dropping anything: it carries the paths that actually went, which
-            // is the only way either can tell a partial failure from a clean run.
-            case 'deleteFiles':
-                this.onTagEditorEvent(json);
-                this.onQuickTagEvent('deleteFiles', json);
-                break;
-            // Both browsers poll this, so it is routed to both. It does not
-            // start with `tagEditor`, so the prefix match in the default arm
-            // below would not deliver it -- which is exactly how the Tag
-            // Editor's first version came to poll and never hear back.
-            case 'folderSignature':
-                this.onTagEditorEvent(json);
-                this.onQuickTagEvent('folderSignature', json);
                 break;
             // Error
             case 'error':
@@ -316,11 +243,6 @@ class OneTagger {
                 this.lock.value.locked = false;
                 this.quickTag.value.tracks = json.data.files.map((t: QuickTagFile) => new QTTrack(t, this.settings.value.quickTag));
                 this.quickTag.value.failed = json.data.failed;
-                // A folder load is by definition not search results -- clear the
-                // flag so the status line stops claiming otherwise (e.g. after
-                // picking a folder in the browser while library scope is on).
-                this.quickTag.value.searchQuery = undefined;
-                this.quickTag.value.searchTruncated = false;
                 this.onQuickTagEvent('quickTagLoad');
                 break;
             /*eslint-disable no-case-declarations*/
@@ -334,20 +256,6 @@ class OneTagger {
                 this.quickTag.value.saving -= 1;
                 this.onQuickTagEvent('quickTagSaved');
 
-                break;
-            // Library search results replace the track list wholesale.
-            case 'quickTagSearch':
-                this.lock.value.locked = false;
-                this.quickTag.value.tracks = json.data.files.map((t: QuickTagFile) => new QTTrack(t, this.settings.value.quickTag));
-                this.quickTag.value.failed = json.data.failed;
-                this.quickTag.value.searchQuery = json.query;
-                this.quickTag.value.searchTruncated = json.truncated;
-                // Not a capped folder load; the cap notice must not appear.
-                this.quickTag.value.wasLimited = false;
-                this.onQuickTagEvent('quickTagSearch');
-                break;
-            case 'tagEditorSearch':
-                this.onTagEditorSearchEvent(json);
                 break;
             // Browser folder
             case 'quickTagFolder':
@@ -523,6 +431,18 @@ class OneTagger {
 
     // Open URL in external browser
     url(url: string) {
+        // In server mode the UI is already running in a browser, so open the
+        // link here. Asking the backend to do it means calling `webbrowser` on
+        // the machine running the server -- which on a headless box or in a
+        // container has no browser at all, and answers "No valid browsers
+        // detected" to a user whose browser is plainly working.
+        //
+        // The desktop build still goes through the backend: there the UI is a
+        // webview, and window.open inside it does not reach the real browser.
+        if (this.info.value?.startContext?.serverMode) {
+            window.open(url, '_blank', 'noopener');
+            return;
+        }
         this.send('browser', {url});
     }
 
@@ -703,34 +623,6 @@ class OneTagger {
             // Save limit info
             this.quickTag.value.wasLimited = limit;
         }
-    }
-
-    /// Root for a library-wide search: the server's start path when it has
-    /// one, else wherever the view is currently pointed.
-    searchRoot(fallback?: string): string | undefined {
-        return this.libraryRoot.value ?? fallback ?? this.settings.value.path;
-    }
-
-    /// Search the library and replace the Quick Tag track list with the hits.
-    /// Matched paths are tag-read server side, so this is slower than the Tag
-    /// Editor's equivalent and is why the result count is capped.
-    searchQuickTag(query: string) {
-        let path = this.searchRoot();
-        if (!path || !query.trim()) return;
-        this.lock.value.locked = true;
-        this.send('quickTagSearch', {
-            query,
-            path,
-            separators: this.settings.value.quickTag.separators
-        });
-    }
-
-    /// Search the library for the Tag Editor. Returns bare entries -- no tags
-    /// are read, so this stays close to the cost of the directory walk.
-    searchTagEditor(query: string, fallbackPath?: string) {
-        let path = this.searchRoot(fallbackPath);
-        if (!path || !query.trim()) return;
-        this.send('tagEditorSearch', { query, path });
     }
 
     /// Stop the tagging process
