@@ -186,6 +186,11 @@ pub(crate) async fn handle_ws_connection(mut websocket: WebSocket, context: Star
         match message {
             Ok(msg) => {
                 match msg.to_text() {
+                    // A Close frame stringifies to "", which the parser then
+                    // rejects as EOF -- logging an error for an ordinary
+                    // disconnect and trying to answer on a socket that is
+                    // already gone. Nothing empty is ever a command.
+                    Ok(text) if text.is_empty() => {},
                     Ok(text) => {
                         // Handle the WS message
                         match handle_message(text, &mut websocket, &mut context).await {

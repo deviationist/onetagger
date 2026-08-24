@@ -37,6 +37,11 @@ class OneTagger {
     private wsPromiseResolve?: (_: any) => void;
     private wsPromise?;
 
+    /// Reconnect backoff, in ms, reset on a successful open.
+    private wsReconnectDelay = 1000;
+    /// Whether the current gap follows a drop, so it can be reported once.
+    private wsWasDropped = false;
+
     // Quicktag track loading
     private nextQTTrack?: QTTrack;
 
@@ -53,31 +58,13 @@ class OneTagger {
 
         // WS connection promise
         this.wsPromise = new Promise((res) => this.wsPromiseResolve = res);
-        // Setup WS connection
-        this.ws = new WebSocket(wsUrl());
-        this.ws.addEventListener('error', (e) => this.onError(e ?? 'Websocket error!'));
-        this.ws.addEventListener('close', (_) => this.onError('WebSocket closed!'));
-        this.ws.addEventListener('open', (_) => {
-            // Resolve connection promise
-            if (this.wsPromiseResolve) {
-                this.wsPromiseResolve(null);
-                this.wsPromiseResolve = undefined;
-            }
+        this.connectSocket();
 
-            // Load initial data
-            this.send('loadSettings');
-            setTimeout(() => {
-                this.send('init');
-                this.send('spotifyAuthorized');
-                // Load platforms
-                setTimeout(() => this.loadPlatforms(), 25);
-            }, 100);
-        });
-        this.ws.addEventListener('message', (event) => {
-            // Parse incoming message
-            let json = JSON.parse(event.data);
-            if (!json.action) return;
-            this.incomingEvent(json);
+        // A tab coming back into view is the moment a dead socket is noticed,
+        // so try immediately rather than waiting out the backoff.
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible'
+                && this.ws.readyState === WebSocket.CLOSED) this.connectSocket();
         });
 
         // Keybinds
@@ -100,6 +87,64 @@ class OneTagger {
             }
         });
     }
+
+    /// Open the socket, and keep it open.
+    ///
+    /// The connection used to be made once, in the constructor, with `close`
+    /// wired to nothing but an error toast. Anything that dropped it -- a
+    /// sleeping laptop, a Wi-Fi roam, a container restart under the reverse
+    /// proxy -- left the page permanently deaf: sends went to a closed socket,
+    /// clicks did nothing, listings froze at their last state, and only a
+    /// manual reload brought it back. Every "it worked after I refreshed" is
+    /// this.
+    private connectSocket() {
+        this.ws = new WebSocket(wsUrl());
+        this.ws.addEventListener('error', (e) => this.onError(e ?? 'Websocket error!'));
+        this.ws.addEventListener('close', (_) => this.scheduleReconnect());
+        this.ws.addEventListener('open', (_) => {
+            this.wsReconnectDelay = 1000;
+            // Resolve connection promise
+            if (this.wsPromiseResolve) {
+                this.wsPromiseResolve(null);
+                this.wsPromiseResolve = undefined;
+            }
+            if (this.wsWasDropped) {
+                this.wsWasDropped = false;
+                this.onSocketRestored();
+            }
+
+            // Load initial data
+            this.send('loadSettings');
+            setTimeout(() => {
+                this.send('init');
+                this.send('spotifyAuthorized');
+                // Load platforms
+                setTimeout(() => this.loadPlatforms(), 25);
+            }, 100);
+        });
+        this.ws.addEventListener('message', (event) => {
+            // Parse incoming message
+            let json = JSON.parse(event.data);
+            if (!json.action) return;
+            this.incomingEvent(json);
+        });
+    }
+
+    /// Retry with a widening gap, reported once rather than per attempt.
+    private scheduleReconnect() {
+        if (!this.wsWasDropped) {
+            this.wsWasDropped = true;
+            this.onError('Connection lost - reconnecting');
+        }
+        const delay = this.wsReconnectDelay;
+        this.wsReconnectDelay = Math.min(delay * 2, 10000);
+        setTimeout(() => {
+            if (this.ws.readyState === WebSocket.CLOSED) this.connectSocket();
+        }, delay);
+    }
+
+    /// SHOULD BE OVERWRITTEN -- lets the UI say the connection came back.
+    onSocketRestored() {}
 
     // SHOULD BE OVERWRITTEN
     quickTagUnfocus() {}
@@ -136,6 +181,10 @@ class OneTagger {
         }
         let data = { action };
         Object.assign(data, params);
+        // Dropping is right: every caller is either a poll that will come round
+        // again or a user action that will be retried. Throwing here only
+        // filled the console while the reconnect was already in flight.
+        if (this.ws.readyState !== WebSocket.OPEN) return;
         this.ws.send(JSON.stringify(data));
     }
 
