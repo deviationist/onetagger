@@ -16,6 +16,19 @@
         <span v-if='extended' class='text-green-5'>&nbsp;Full values loaded.</span>
     </div>
 
+    <!-- Without this, "take all" quietly leaves behind every field the new
+         source cannot fill, so you end up with a hybrid of the source you chose
+         and the one you were trying to replace -- artwork being the usual one.
+         Turning it on makes "take all" mean *only* this source. -->
+    <div class='q-px-sm q-pb-sm'>
+        <q-toggle dense size='xs' v-model='allowEmpty' color='primary'>
+            <span class='text-caption text-grey-6'>
+                “Take all” includes empty values — a field this source lacks is
+                cleared rather than kept from the previous one
+            </span>
+        </q-toggle>
+    </div>
+
     <div class='mtm-scroll'>
         <table class='mtm-table'>
             <thead>
@@ -62,7 +75,7 @@
                     <td v-for='(m, i) in matches' :key='i' class='mtm-cell'
                         :class="{ 'mtm-empty': !has(m.track, f.key) }">
                         <q-radio
-                            v-if='has(m.track, f.key)'
+                            v-if='has(m.track, f.key) || allowEmpty'
                             dense
                             size='xs'
                             :model-value='scalar[f.key]'
@@ -70,8 +83,9 @@
                             @update:model-value='scalar[f.key] = i'
                         >
                             <span class='mtm-val'>
-                                <img v-if="f.key === 'art'" :src='m.track.art' class='mtm-art'>
-                                <span v-else>{{ display(m.track, f.key) }}</span>
+                                <img v-if="f.key === 'art' && has(m.track, f.key)" :src='m.track.art' class='mtm-art'>
+                                <span v-else-if='has(m.track, f.key)'>{{ display(m.track, f.key) }}</span>
+                                <span v-else class='mtm-dash'>— none</span>
                             </span>
                         </q-radio>
                         <!-- Absent, not blank: an empty artwork cell is the thing
@@ -194,6 +208,7 @@ const scalar = reactive<Record<string, number | 'custom' | undefined>>({});
 const arr = reactive<Record<string, (number | 'custom')[]>>({});
 const custom = reactive<Record<string, string>>({});
 
+const allowEmpty = ref(false);
 const saving = ref(false);
 const extending = ref(false);
 const extended = computed(() => $1t.manualTag.value.extended);
@@ -238,9 +253,26 @@ function resetToDefaults() {
     }
 }
 
+/// Take one source for every row it can fill -- or, with `allowEmpty`, for every
+/// row full stop.
+///
+/// The default is conservative because it is usually what you want: most of the
+/// time a second source is filling gaps. But it means the result is a hybrid,
+/// and the fields it keeps are exactly the ones the chosen source is silent
+/// about -- which is how you end up publishing artwork from a release you
+/// rejected. Opting in makes the button mean "only this source", and a field it
+/// lacks is then simply not written.
 function takeAll(i: number) {
-    for (const f of SCALARS) if (has(matches.value[i].track, f.key)) scalar[f.key] = i;
-    for (const f of ARRAYS) if (has(matches.value[i].track, f.key)) arr[f.key] = [i];
+    for (const f of SCALARS) {
+        if (allowEmpty.value || has(matches.value[i].track, f.key)) scalar[f.key] = i;
+    }
+    for (const f of ARRAYS) {
+        // A ticked source that offers nothing contributes nothing, so there is
+        // no empty checkbox to select here -- clearing the row is the same
+        // statement, and it is one the UI can actually show.
+        if (has(matches.value[i].track, f.key)) arr[f.key] = [i];
+        else if (allowEmpty.value) arr[f.key] = [];
+    }
 }
 
 function toggleArray(key: string, i: number | 'custom') {
@@ -339,6 +371,19 @@ async function apply() {
         $q.dialog({ title: 'Failed to save track', message: response.error, ok: true, cancel: false });
     }
 }
+
+// Turning the opt-in back off hides the radios on empty cells, so a selection
+// still pointing at one would leave the row looking unset while the counter
+// said otherwise. The written result is identical either way -- an empty source
+// and no selection both mean "not written" -- so this is purely about the
+// display not contradicting itself.
+watch(allowEmpty, (on) => {
+    if (on) return;
+    for (const f of SCALARS) {
+        const c = scalar[f.key];
+        if (typeof c === 'number' && !has(matches.value[c].track, f.key)) scalar[f.key] = undefined;
+    }
+});
 
 onMounted(resetToDefaults);
 watch(matches, resetToDefaults, { deep: false });
