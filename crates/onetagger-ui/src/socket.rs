@@ -10,7 +10,7 @@ use onetagger_renamer::{Renamer, TemplateParser, RenamerConfig};
 use serde_json::{Value, json};
 use serde::{Serialize, Deserialize};
 use onetagger_tag::{TagChanges, TagSeparators, Tag, Field};
-use onetagger_tagger::{TaggerConfig, AudioFileInfo, TrackMatch};
+use onetagger_tagger::{TaggerConfig, AudioFileInfo, Track, TrackMatch};
 use onetagger_autotag::{Tagger, AudioFileInfoImpl, TaggerConfigExt, AUTOTAGGER_PLATFORMS};
 use onetagger_autotag::audiofeatures::{AudioFeaturesConfig, AudioFeatures};
 use onetagger_platforms::spotify::Spotify;
@@ -99,6 +99,15 @@ enum Action {
 
     ManualTag { config: TaggerConfig, path: PathBuf },
     ManualTagApply { matches: Vec<TrackMatch>, path: PathBuf, config: TaggerConfig },
+
+    /// Extend every match so the matrix view draws what a platform can actually
+    /// offer, rather than only what its search returned. Separate from apply
+    /// because the operator chooses from these values before applying anything.
+    ManualTagExtend { matches: Vec<TrackMatch>, path: PathBuf, config: TaggerConfig },
+    /// Write a track the operator composed field by field in the matrix view.
+    /// The precedence merge behind `ManualTagApply` cannot express this: it only
+    /// knows first-selection-wins for scalars and union for arrays.
+    ManualTagApplyComposed { track: Track, path: PathBuf, config: TaggerConfig },
 }
 
 
@@ -818,6 +827,45 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
                 },
                 Err(e) => {
                     error!("Failed applying manual tag: {e}");
+                    send_socket(websocket, json!({
+                        "action": "manualTagApplied",
+                        "status": "error",
+                        "error": e.to_string()
+                    })).await.ok();
+                },
+            }
+        },
+
+        // Extend every match, then hand them back so the matrix can draw the
+        // real values. `path` is confined even though nothing is written: it is
+        // still an operator-supplied path reaching the platform sources.
+        Action::ManualTagExtend { mut matches, path, config } => {
+            let _ = paths::confine(&path)?;
+            // Blocking: extension is a network round trip per match, and the
+            // socket task must not stall while they run.
+            let matches = tokio::task::spawn_blocking(move || {
+                onetagger_autotag::manual_tagger_extend(&mut matches, &config);
+                matches
+            }).await?;
+            send_socket(websocket, json!({
+                "action": "manualTagExtended",
+                "status": "ok",
+                "matches": matches
+            })).await.ok();
+        },
+
+        // Write a composite the operator built in the matrix view.
+        Action::ManualTagApplyComposed { track, path, config } => {
+            let path = paths::confine(&path)?;
+            match onetagger_autotag::manual_tagger_apply_composed(track, path, &config) {
+                Ok(_) => {
+                    send_socket(websocket, json!({
+                        "action": "manualTagApplied",
+                        "status": "ok"
+                    })).await.ok();
+                },
+                Err(e) => {
+                    error!("Failed applying composed manual tag: {e}");
                     send_socket(websocket, json!({
                         "action": "manualTagApplied",
                         "status": "error",

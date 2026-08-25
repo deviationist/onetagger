@@ -1290,12 +1290,19 @@ pub fn manual_tagger(path: impl AsRef<Path>, config: &TaggerConfig) -> Result<Re
 }
 
 /// Apply manual tag results
-pub fn manual_tagger_apply(mut matches: Vec<TrackMatch>, path: impl AsRef<Path>, config: &TaggerConfig) -> Result<(), Error> {
-    if matches.is_empty() {
-        return Ok(())
-    }
-    
-    // Extend each match
+/// Extend every match in place, so each carries everything its platform can offer.
+///
+/// Split out of `manual_tagger_apply` because the manual tagger's matrix view
+/// needs the same thing for a different reason: it *draws* these values, and a
+/// field a platform only fills in during extension would otherwise render as
+/// absent. `musicbrainz` sets `art` from the Cover Art Archive here, and
+/// `traxsource` takes an `album_art` parameter -- so a grid built on raw search
+/// results understates both, and an empty art cell is precisely what sends an
+/// operator to a different column.
+///
+/// A platform that fails to extend is left as it was and logged: one bad source
+/// should not cost the operator the other columns.
+pub fn manual_tagger_extend(matches: &mut Vec<TrackMatch>, config: &TaggerConfig) {
     for m in matches.iter_mut() {
         // Get platform
         let mut autotagger_platforms = AUTOTAGGER_PLATFORMS.lock().unwrap();
@@ -1320,6 +1327,33 @@ pub fn manual_tagger_apply(mut matches: Vec<TrackMatch>, path: impl AsRef<Path>,
             Err(e) => warn!("Failed extending track using: {}. {e}", m.track.platform),
         }
     }
+}
+
+/// Write an already-composed track straight to the file.
+///
+/// The manual tagger's matrix view composes a winner field by field on the
+/// client, which the precedence merge in `manual_tagger_apply` cannot express --
+/// it only knows "first selection wins" for scalars and "union" for arrays. This
+/// is deliberately the *whole* backend for that view: the composition is the
+/// operator's, and the only thing left to do is write it.
+///
+/// It reuses `write_to_file`, so the operator's enabled-tags and overwrite
+/// settings still apply exactly as they do everywhere else. Extension is not run
+/// here -- the values were extended before they were shown and chosen, and
+/// re-extending a composite would consult one platform for fields taken from
+/// several.
+pub fn manual_tagger_apply_composed(track: Track, path: impl AsRef<Path>, config: &TaggerConfig) -> Result<(), Error> {
+    track.merge_styles(&config.styles_options).write_to_file(&path, &config)?;
+    Ok(())
+}
+
+pub fn manual_tagger_apply(mut matches: Vec<TrackMatch>, path: impl AsRef<Path>, config: &TaggerConfig) -> Result<(), Error> {
+    if matches.is_empty() {
+        return Ok(())
+    }
+    
+    // Extend each match
+    manual_tagger_extend(&mut matches, config);
 
     // Merge
     let mut track = matches.remove(0).track;
