@@ -12,6 +12,9 @@ class ManualTag {
 
     
     _resolveSaving?: Function;
+    _resolveExtend?: Function;
+    /// Whether `extend()` has already run for the current result set.
+    extended = false;
 
     constructor() {}
 
@@ -25,6 +28,7 @@ class ManualTag {
         this.errors = [];
         this.busy = false;
         this.done = false;
+        this.extended = false;
     }
 
     /// Start tagging a track
@@ -52,6 +56,43 @@ class ManualTag {
         const $1t = get1t();
         let promise = new Promise((res, rej) => this._resolveSaving = res);
         $1t.send('manualTagApply', { matches, path, config });
+        let r = await promise;
+        this._resolveSaving = undefined;
+        return r;
+    }
+
+    /// Ask the backend to extend every match, so the matrix draws what a
+    /// platform can actually offer rather than only what its search returned.
+    ///
+    /// `musicbrainz` fetches art from the Cover Art Archive during extension and
+    /// `traxsource` takes an album_art parameter, so without this their art
+    /// cells read "none" for releases that would in fact gain a cover on apply
+    /// -- and an empty art cell is exactly what sends you to another column.
+    async extend(path: string, config: AutotaggerConfig): Promise<boolean> {
+        const $1t = get1t();
+        let promise = new Promise<any>((res) => this._resolveExtend = res);
+        $1t.send('manualTagExtend', { matches: this.matches, path, config });
+        let r = await promise;
+        this._resolveExtend = undefined;
+        if (r?.status === 'ok' && Array.isArray(r.matches)) {
+            // Replace wholesale rather than merging field by field: the backend
+            // returned the same matches in the same order, extended.
+            this.matches = r.matches;
+            this.extended = true;
+            return true;
+        }
+        return false;
+    }
+
+    /// Apply a track composed field by field in the matrix view.
+    ///
+    /// Separate from `apply` because that one sends a *list* the backend merges
+    /// by precedence -- first-selection-wins for scalars, union for arrays --
+    /// which cannot express "album from here, art from there".
+    async applyComposed(track: Track, path: string, config: AutotaggerConfig) {
+        const $1t = get1t();
+        let promise = new Promise((res) => this._resolveSaving = res);
+        $1t.send('manualTagApplyComposed', { track, path, config });
         let r = await promise;
         this._resolveSaving = undefined;
         return r;

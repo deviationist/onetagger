@@ -1,19 +1,39 @@
 <template>
 <q-dialog v-model='show' persistent>
-<q-card style='min-width: 650px; min-height: 50vh;' class='q-pa-lg'>
+<q-card :style="view == 'matrix' ? 'min-width: 90vw; min-height: 50vh;' : 'min-width: 650px; min-height: 50vh;'" class='q-pa-lg'>
 
     <!-- Title -->
     <q-card-section>
         <div class='text-subtitle2 q-mb-xs text-bold text-center text-primary'>MANUAL TAG</div>
         <div class='monospace text-subtitle2 text-grey-6 text-center'>{{ path }}</div>
+        <!-- Two renderings of the same results, not two features. The list
+             picks a winning *match*; the matrix picks a winning *source per
+             field*, which is the thing the list cannot express. -->
+        <div class='text-center q-mt-md' v-if='$1t.manualTag.value.matches.length > 0'>
+            <q-btn-toggle
+                v-model='view'
+                dense flat no-caps
+                toggle-color='primary'
+                :options="[{label: 'List', value: 'list'}, {label: 'Matrix', value: 'matrix'}]"
+            />
+        </div>
     </q-card-section>
 
     <!-- Body -->
     <q-card-section>
         <div class='manualtag-results bg-dark q-pt-md'>
 
+            <!-- Matrix view -->
+            <ManualTagMatrix
+                v-if="view == 'matrix' && $1t.manualTag.value.matches.length > 0"
+                :matches='$1t.manualTag.value.matches'
+                :path='path!'
+                :config='cachedConfig'
+                @applied='exit'
+            />
+
             <!-- Results list -->
-            <q-list v-if='$1t.manualTag.value.busy || $1t.manualTag.value.done'>
+            <q-list v-if="view == 'list' && ($1t.manualTag.value.busy || $1t.manualTag.value.done)">
 
                 <!-- Empty results -->
                 <div v-if='$1t.manualTag.value.done && $1t.manualTag.value.matches.length == 0' class='text-center'>
@@ -144,14 +164,14 @@
         <!-- What a multi-select actually does. Merging has always worked; the
              dialog never said so, and selection order silently decided which
              source won a contested field. -->
-        <div class='q-px-sm text-caption text-grey-6' v-if='selected.length > 1'
+        <div class='q-px-sm text-caption text-grey-6' v-if="view == 'list' && selected.length > 1"
              style='max-width: 420px; line-height: 1.35;'>
             Merging {{selected.length}} matches: fields come from
             <span class='text-primary'>#1</span>, and the rest fill only what it
             leaves empty. Untick and re-tick to change the order.
         </div>
         <!-- Apply -->
-        <div class='q-px-sm' v-if='selected.length > 0'>
+        <div class='q-px-sm' v-if="view == 'list' && selected.length > 0">
             <q-btn 
                 flat 
                 color='primary' 
@@ -202,6 +222,7 @@ import { useQuasar } from 'quasar';
 import AutotaggerPlatforms from './AutotaggerPlatforms.vue';
 import AutotaggerTags from './AutotaggerTags.vue';
 import AutotaggerPlatformSpecific from './AutotaggerPlatformSpecific.vue';
+import ManualTagMatrix from './ManualTagMatrix.vue';
 import { PLACEHOLDER_IMG, keyColor } from '../scripts/quicktag';
 
 const $q = useQuasar();
@@ -284,6 +305,7 @@ const props = defineProps({
 const { path } = toRefs(props);
 const saving = ref(false);
 const selected = ref<TrackMatch[]>([]);
+const view = ref<'list' | 'matrix'>('list');
 const errorList = ref(false);
 let cachedConfig = {};
 
