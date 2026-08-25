@@ -430,7 +430,10 @@
 
             <!-- Close, Manual tag, Save -->
             <q-page-sticky position='bottom-right' :offset='[36, 18]'>
-                <div class='row'>
+                <!-- The bar floats over the tag form, which scrolls under it.
+                     Without a surface of its own the inputs run straight into
+                     the buttons and it is briefly unclear what belongs to what. -->
+                <div class='row te-actions'>
                     <!-- Leftmost, and outline rather than filled: it is the
                          one button here that does not act on the file. -->
                     <q-btn dense
@@ -1322,6 +1325,25 @@ onDeactivated(() => {
 </script>
 
 <style>
+/* A surface under the floating action bar.
+   Slightly lighter than the panels behind it (#181818) rather than darker, so
+   it reads as sitting on top; the blur is what actually separates it from a
+   dense form, and the shadow gives the edge somewhere to land. Both degrade
+   safely -- without backdrop-filter support the flat background still covers
+   what is underneath. */
+.te-actions {
+    background: #1f1f1feb;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border-radius: 10px;
+    padding: 6px 10px;
+    box-shadow: 0 4px 18px #00000073, 0 0 0 1px #ffffff14;
+}
+/* The buttons carry q-mt-xs for the old, backdrop-less layout; inside a padded
+   box it just pushes them off-centre. */
+.te-actions .q-btn {
+    margin-top: 0 !important;
+}
 .te-result {
     display: inline-block;
     max-width: calc(100% - 24px);
