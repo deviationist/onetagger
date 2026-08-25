@@ -166,7 +166,8 @@ import { ref, reactive, computed, watch, onMounted, toRefs, PropType } from 'vue
 import { useQuasar } from 'quasar';
 import { get1t } from '../scripts/onetagger';
 import type { TrackMatch } from '../scripts/manualtag';
-import type { AutotaggerConfig, Track } from '../scripts/autotagger';
+import type { AutotaggerConfig } from '../scripts/autotagger';
+import { SCALARS, ARRAYS, ROWS, has, compose, narrowTags } from '../scripts/manualtagcompose';
 import { useFileDuration, trackLength, lengthDelta, deltaLabel, deltaColor } from '../scripts/trackduration';
 
 const $1t = get1t();
@@ -187,41 +188,6 @@ const emit = defineEmits(['applied']);
 /// and only make sense together: a source offering a release *year* but no full
 /// date would otherwise contribute half of a date, and artwork carries its own
 /// thumbnail URL. Choosing a source for the row takes all of its siblings.
-/// `tag` is the SupportedTag this row writes, and it is what actually decides
-/// whether the row is applied: an unticked row is dropped from the config sent
-/// with the composite, so `write_to_file` skips it entirely.
-///
-/// That mechanism, rather than simply leaving the value empty, because Title and
-/// Artist are the two fields OneTagger writes *unguarded* -- every other field
-/// is behind an `is_some()` / `!is_empty()` check and an empty one is left
-/// alone, but an empty title or artist is written, and writing an empty one
-/// erases what the file had.
-const SCALARS = [
-    { key: 'title',          label: 'Title',         tag: 'title' },
-    { key: 'version',        label: 'Version',       tag: 'version' },
-    { key: 'album',          label: 'Album',         tag: 'album' },
-    { key: 'label',          label: 'Label',         tag: 'label' },
-    { key: 'catalog_number', label: 'Catalogue №',   tag: 'catalogNumber' },
-    { key: 'key',            label: 'Key',           tag: 'key' },
-    { key: 'bpm',            label: 'BPM',           tag: 'bpm',         hint: 'e.g. 128' },
-    { key: 'release_date',   label: 'Release date',  tag: 'releaseDate', siblings: ['release_year'], hint: 'YYYY-MM-DD' },
-    { key: 'publish_date',   label: 'Publish date',  tag: 'publishDate', siblings: ['publish_year'], hint: 'YYYY-MM-DD' },
-    { key: 'isrc',           label: 'ISRC',          tag: 'isrc' },
-    { key: 'mood',           label: 'Mood',          tag: 'mood' },
-    { key: 'explicit',       label: 'Explicit',      tag: 'explicit',    hint: 'yes / no' },
-    { key: 'art',            label: 'Artwork',       tag: 'albumArt',    siblings: ['thumbnail'], hint: 'image URL' },
-    { key: 'url',            label: 'URL',           tag: 'url' },
-];
-
-const ARRAYS = [
-    { key: 'artists',       label: 'Artists',       tag: 'artist' },
-    { key: 'album_artists', label: 'Album artists', tag: 'albumArtist' },
-    { key: 'genres',        label: 'Genres',        tag: 'genre' },
-    { key: 'styles',        label: 'Styles',        tag: 'style' },
-    { key: 'remixers',      label: 'Remixers',      tag: 'remixer' },
-];
-
-const ROWS = [...SCALARS, ...ARRAYS];
 
 // field -> match index, or 'custom', or undefined (meaning: do not write it)
 const scalar = reactive<Record<string, number | 'custom' | undefined>>({});
@@ -238,12 +204,6 @@ const saving = ref(false);
 const extending = ref(false);
 const extended = computed(() => $1t.manualTag.value.extended);
 
-function has(track: any, key: string): boolean {
-    const v = track[key];
-    if (v === undefined || v === null || v === '') return false;
-    if (Array.isArray(v)) return v.length > 0;
-    return true;
-}
 
 function display(track: any, key: string): string {
     const v = track[key];
@@ -325,7 +285,7 @@ function ensureArrayCustom(key: string) {
 
 // Counts what will actually be written, not what is merely selected -- an
 // unticked row with a selection would otherwise inflate it.
-const chosenCount = computed(() => compose().tags.length);
+const chosenCount = computed(() => compose(matches.value, { enabled, scalar, arr, custom }).tags.length);
 
 async function extend() {
     extending.value = true;
@@ -336,98 +296,22 @@ async function extend() {
     resetToDefaults();
 }
 
-/// Parse a typed value into the shape the field expects.
-///
-/// Returns undefined for anything unusable, which the caller treats as "leave
-/// this field unwritten" -- silently writing 0 for an unparseable BPM would be
-/// worse than writing nothing.
-function parseCustom(key: string, raw: string): any {
-    const v = (raw ?? '').trim();
-    if (!v) return undefined;
-    if (key === 'bpm') {
-        const n = parseInt(v, 10);
-        return Number.isFinite(n) ? n : undefined;
-    }
-    if (key === 'explicit') {
-        if (/^(y|yes|true|1)$/i.test(v)) return true;
-        if (/^(n|no|false|0)$/i.test(v)) return false;
-        return undefined;
-    }
-    return v;
-}
 
 /// Build the track that will be written.
 ///
 /// Starts from the highest-accuracy match so the fields the matrix does not
 /// arbitrate -- platform, duration, ids, arbitrary `other` frames -- still carry
 /// something coherent, then replaces every row from its chosen source.
-/// Build the track to write, and the list of tags that may be written.
-///
-/// Two results because they answer different questions. The track carries the
-/// values; the tag list decides which of them the backend is allowed to touch,
-/// and it is the tag list that makes "only the artwork" safe. Leaving a field
-/// empty is not equivalent: Title and Artist are written unguarded, so an empty
-/// one erases what the file had.
-///
-/// A row contributes its tag only when it is ticked *and* resolves to a real
-/// value. An unticked row, a row with nothing selected, and a row pointed at an
-/// empty cell are all the same statement -- do not touch this field -- and the
-/// values already on the file survive untouched.
-function compose(): { track: Track, tags: string[] } {
-    const base: any = JSON.parse(JSON.stringify(matches.value[0].track));
-    const tags: string[] = [];
-
-    for (const f of SCALARS) {
-        if (!enabled[f.key]) continue;
-        const keys = [f.key, ...(f.siblings ?? [])];
-        const choice = scalar[f.key];
-        if (choice === undefined) continue;
-
-        if (choice === 'custom') {
-            const parsed = parseCustom(f.key, custom[f.key]);
-            if (parsed === undefined) continue;
-            base[f.key] = parsed;
-            // A typed date cannot also supply a year, and a typed artwork URL
-            // has no thumbnail -- clear the siblings rather than leaving the
-            // primary match's, which would pair a new value with an old one.
-            for (const k of keys.slice(1)) base[k] = undefined;
-            tags.push(f.tag);
-            continue;
-        }
-
-        const src: any = matches.value[choice].track;
-        if (!has(src, f.key)) continue;
-        for (const k of keys) base[k] = src[k];
-        tags.push(f.tag);
-    }
-
-    for (const f of ARRAYS) {
-        if (!enabled[f.key]) continue;
-        const out: string[] = [];
-        for (const c of arr[f.key]) {
-            const vals: string[] = c === 'custom'
-                ? (custom[f.key] ?? '').split(',').map((s) => s.trim()).filter(Boolean)
-                : ((matches.value[c as number].track as any)[f.key] ?? []);
-            for (const v of vals) if (!out.includes(v)) out.push(v);
-        }
-        if (!out.length) continue;
-        base[f.key] = out;
-        tags.push(f.tag);
-    }
-
-    return { track: base as Track, tags };
-}
 
 async function apply() {
-    const { track, tags } = compose();
+    const { track, tags } = compose(matches.value, { enabled, scalar, arr, custom });
 
     // Narrow the config's tag list to the rows being applied -- an intersection,
     // never a union: a tag the operator disabled in their own settings stays
     // disabled, and tags this matrix has no row for (metaTags, lyrics, ids) are
     // passed through untouched rather than silently dropped.
     const config: any = JSON.parse(JSON.stringify(props.config));
-    const owned = new Set(ROWS.map((r) => r.tag));
-    config.tags = (config.tags ?? []).filter((t: string) => !owned.has(t) || tags.includes(t));
+    config.tags = narrowTags(config.tags, tags);
 
     saving.value = true;
     const response: any = await $1t.manualTag.value
