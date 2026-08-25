@@ -243,3 +243,14 @@ code {
     box-shadow: none !important;
     outline: solid 1px #ffffff69;
 }
+
+/* The clear (x) on the Quick Tag and Tag Editor search boxes. Global for the
+   same reason as the rule above -- both views need it and only one is loaded at
+   a time, so a component-local style would be missing in the other.
+
+   Scoped to `.search-clearable` rather than every q-input: this shrinks the
+   icon, and doing that to every clearable field in the app is a wider change
+   than was asked for. */
+.search-clearable .q-field__focusable-action {
+    font-size: 20px;
+}
