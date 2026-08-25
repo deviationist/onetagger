@@ -16,16 +16,23 @@ export const MAX_DURATION_DIFFERENCE = 30;
 
 /// The length of the file being tagged, when it is known.
 ///
-/// Taken from the player, which is told the duration by the backend when a file
-/// is loaded -- and told it *before* the audio sink is touched, so this works
-/// even where there is no audio device at all, as in the Docker image.
+/// Read from the file by the backend when the manual tagger opens, which is the
+/// only source that is reliably there. The player is not: neither entry point
+/// loads one -- QuickTag sets a path, the Tag Editor's button is a bare
+/// assignment -- so it holds this file only if the operator happened to play it
+/// first, and from the Tag Editor essentially never. Falling back to it anyway
+/// costs nothing and covers the window before the info request returns.
 ///
-/// Guarded on the path, because the player holds whatever was last loaded and
-/// that is not always the file this was opened for. A delta measured against
-/// the wrong file would be worse than no delta: it looks like an answer.
+/// The player fallback stays guarded on the path, because it holds whatever was
+/// last loaded and that is not always the file this was opened for. A delta
+/// measured against the wrong file would be worse than no delta: it looks like
+/// an answer.
 export function useFileDuration(path: Ref<string | undefined>): ComputedRef<number | undefined> {
     const $1t = get1t();
     return computed(() => {
+        const fromFile = $1t.manualTag.value?.fileInfo?.duration;
+        if (typeof fromFile === 'number' && fromFile > 1) return Math.round(fromFile);
+
         const player = $1t.player.value;
         if (!player?.path || !path.value) return undefined;
         if (player.path !== path.value) return undefined;
