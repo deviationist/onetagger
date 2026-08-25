@@ -26,6 +26,21 @@
                         <div class='text-caption' :class='accuracyColor(m.accuracy)'>
                             {{ Math.round(m.accuracy * 100) }}%
                         </div>
+                        <!-- Length is not a field you select -- it is how you
+                             judge a column. Two remixes of one track share
+                             title, artist and often album, and differ by
+                             minutes, so the delta against the file is usually
+                             what settles which source is even talking about
+                             this recording. -->
+                        <div class='text-caption' v-if='trackLength(m.track)'>
+                            <span class='monospace text-grey-4'>{{ trackLength(m.track) }}</span>
+                            <span v-if='lengthDelta(m.track, fileDuration) !== undefined'
+                                  class='monospace q-ml-xs'
+                                  :class='deltaColor(lengthDelta(m.track, fileDuration)!)'>
+                                {{ deltaLabel(lengthDelta(m.track, fileDuration)!) }}
+                            </span>
+                        </div>
+                        <div class='text-caption text-grey-7' v-else>no length</div>
                         <!-- Take this source for every row it can fill. The common
                              case is "this one, except the artwork", which is then
                              one click here plus one in the artwork row. -->
@@ -128,6 +143,7 @@ import { useQuasar } from 'quasar';
 import { get1t } from '../scripts/onetagger';
 import type { TrackMatch } from '../scripts/manualtag';
 import type { AutotaggerConfig, Track } from '../scripts/autotagger';
+import { useFileDuration, trackLength, lengthDelta, deltaLabel, deltaColor } from '../scripts/trackduration';
 
 const $1t = get1t();
 const $q = useQuasar();
@@ -138,6 +154,7 @@ const props = defineProps({
     config: { type: Object, required: true },
 });
 const { matches, path } = toRefs(props);
+const fileDuration = useFileDuration(path);
 const emit = defineEmits(['applied']);
 
 /// Fields the matrix can arbitrate with a single winner.

@@ -105,9 +105,9 @@
                             <span v-if='trackLength(match.track)'>
                                 <q-badge outline color='grey-9' class='q-mx-xs'><span class='text-uppercase text-grey-6'>Length</span></q-badge>
                                 <span class='text-caption monospace text-weight-medium text-grey-4'>{{ trackLength(match.track) }}</span>
-                                <span v-if='lengthDelta(match.track) !== undefined'
+                                <span v-if='lengthDelta(match.track, fileDuration) !== undefined'
                                       class='text-caption monospace text-weight-medium q-ml-xs'
-                                      :class='deltaColor(lengthDelta(match.track)!)'>{{ deltaLabel(lengthDelta(match.track)!) }}</span>
+                                      :class='deltaColor(lengthDelta(match.track, fileDuration)!)'>{{ deltaLabel(lengthDelta(match.track, fileDuration)!) }}</span>
                             </span>
                             <span v-if='match.track.bpm'>
                                 <q-badge outline color='grey-9' class='q-mx-xs'><span class='text-uppercase text-grey-6'>BPM</span></q-badge>
@@ -219,6 +219,7 @@ import { TrackMatch } from '../scripts/manualtag';
 import { get1t } from '../scripts/onetagger';
 import { AutotaggerConfig } from '../scripts/autotagger';
 import { useQuasar } from 'quasar';
+import { useFileDuration, trackLength, lengthDelta, deltaLabel, deltaColor } from '../scripts/trackduration';
 import AutotaggerPlatforms from './AutotaggerPlatforms.vue';
 import AutotaggerTags from './AutotaggerTags.vue';
 import AutotaggerPlatformSpecific from './AutotaggerPlatformSpecific.vue';
@@ -229,80 +230,11 @@ const $q = useQuasar();
 const $1t = get1t();
 const show = ref(false);
 const emit = defineEmits(['exit']);
-/// The length of the file being tagged, when it is known.
-///
-/// Taken from the player, which is told the duration by the backend when a file
-/// is loaded -- and told it *before* the audio sink is touched, so this works
-/// even where there is no audio device at all, as in the Docker image.
-///
-/// Guarded on the path, because the player holds whatever was last loaded and
-/// that is not always the file this dialog was opened for. A delta measured
-/// against the wrong file would be worse than no delta: it looks like an
-/// answer.
-const fileDuration = computed<number | undefined>(() => {
-    const player = $1t.player.value;
-    if (!player?.path || !path?.value) return undefined;
-    if (player.path !== path.value) return undefined;
-    const secs = Math.round(player.duration);
-    return secs > 1 ? secs : undefined;
-});
-
-/// A platform result's length, as m:ss.
-///
-/// Absent on some platforms and zero-valued on others, and a length of 0:00 is
-/// worse than no length at all -- it reads as a fact rather than a gap -- so
-/// both are treated as unknown and the badge is left off.
-function trackLength(track: any): string | undefined {
-    const secs = track?.duration?.secs;
-    if (!secs) return undefined;
-    return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
-}
-
-/// How far a result is from the file being tagged, in seconds.
-///
-/// This is the number that actually settles a mix. Two remixes of one track
-/// share a title, an artist and often an album, and differ by minutes -- so the
-/// absolute length is useful and the *difference* is decisive.
-function lengthDelta(track: any): number | undefined {
-    const theirs = track?.duration?.secs;
-    const ours = fileDuration.value;
-    if (!theirs || !ours) return undefined;
-    return theirs - ours;
-}
-
-function deltaLabel(delta: number): string {
-    // An exact match is not "-0:00". Zero has no sign, and printing one makes a
-    // perfect match look like a near miss.
-    if (delta === 0) return 'exact';
-    const sign = delta > 0 ? '+' : '-';
-    const a = Math.abs(delta);
-    return `${sign}${Math.floor(a / 60)}:${String(a % 60).padStart(2, '0')}`;
-}
-
-/// Two bands, and only one of them is ours to choose.
-///
-/// The outer bound is `max_duration_difference`, whose default is 30s: beyond
-/// it the matcher would have rejected the candidate outright, so red means
-/// "this would not have matched automatically" rather than a taste judgement.
-///
-/// The inner bound has no equivalent in OneTagger's config, so 15s is a
-/// choice: wide enough to absorb the sloppy durations platforms report --
-/// rounding, a counted fade, a silent tail -- and tight enough that two mixes
-/// of one track rarely both land in it.
-const CLOSE_ENOUGH_SECONDS = 15;
-const MAX_DURATION_DIFFERENCE = 30;
-
-function deltaColor(delta: number): string {
-    const a = Math.abs(delta);
-    if (a <= CLOSE_ENOUGH_SECONDS) return 'text-green-5';
-    if (a <= MAX_DURATION_DIFFERENCE) return 'text-orange-5';
-    return 'text-red-5';
-}
-
 const props = defineProps({
     path: { type: String, required: false }
 });
 const { path } = toRefs(props);
+const fileDuration = useFileDuration(path!);
 const saving = ref(false);
 const selected = ref<TrackMatch[]>([]);
 const view = ref<'list' | 'matrix'>('list');
