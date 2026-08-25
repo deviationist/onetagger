@@ -20,7 +20,9 @@
     <div class='q-mt-sm'>
 
         <!-- Filter -->        
-        <q-input dense filled label='Filter' class='q-mb-sm' @update:model-value='applyFilter' v-model='filter'></q-input>
+        <!-- No debounce to skip here, unlike the two search boxes: this filters
+             the already-loaded listing, so clearing it is instant either way. -->
+        <q-input dense filled label='Filter' class='q-mb-sm search-clearable' clearable @update:model-value='applyFilter' v-model='filter'></q-input>
 
         <!-- Sort -->
         <div class='row items-center q-mb-sm no-wrap'>
