@@ -1,6 +1,9 @@
 # Plan: pick metadata per field, across sources
 
-**Status: explored, not started. Written 2026-08-24.**
+**Status: shipped 2026-08-25.** Written 2026-08-24, built and merged the next
+day. What follows is the plan as it was reasoned out; the decisions that changed
+on contact with the code are recorded inline, and what actually shipped is
+summarised at the end.
 
 ## The problem, from a real track
 
@@ -84,6 +87,16 @@ there". Three ways out:
 (3) looks best: it leaves today's behaviour as the default, and the override map
 is empty for every existing caller.
 
+> **What shipped: (1), not (3).** The objection to composing client-side was
+> that `manual_tagger_apply` extends each match first, using `track.platform`,
+> which for a composite is a lie. That is real, but it argues for not reusing
+> that entry point rather than for a field->source map. A new action
+> (`manualTagApplyComposed`) writes an already-composed track and does not
+> extend it, and a second (`manualTagExtend`) extends the matches *before* they
+> are drawn, so the values chosen from are the values that would be applied.
+> Composition then belongs on the client, which is where the operator is, and
+> the field list stays in one place instead of being duplicated on both sides.
+
 ## Open questions
 
 - ~~**Does `extend_track` need to run per source before composing?**~~
@@ -122,3 +135,42 @@ is empty for every existing caller.
 The workaround is to tick matches in the right order and accept the array
 pollution. That is invisible, order-dependent, and wrong in a way nobody would
 notice: genres quietly accumulate from sources the operator rejected.
+
+
+## What shipped
+
+A `List / Matrix` toggle on the same results. Rows are fields, columns are
+matches, and a radio per cell picks the winner. Lists get checkboxes so the
+union is chosen rather than inherited -- the defect this plan was written
+around. A `Custom` column takes a typed value for the case every source is
+wrong, parsed per field, with anything unparseable leaving the field unwritten
+rather than writing a bogus zero.
+
+Defaults reproduce the old behaviour exactly: each row starts on the first match
+that can fill it. The difference is that it is visible and every cell of it can
+be overridden.
+
+Three things the plan did not anticipate:
+
+- **A per-row apply checkbox.** Radios cannot be cleared once set, so every row
+  with a selection was written and "just the artwork" was unreachable. An
+  unticked row is dropped from the `tags` list sent with the composite.
+- **That gating has to be the tag list, not an empty value.** `Title` and
+  `Artist` are the two fields `write_to_file` writes *unguarded* -- every other
+  field sits behind an `is_some()`/`!is_empty()` check and an empty one leaves
+  the file alone, but an empty title or artist is written, and writing an empty
+  one erases what was there. Clearing values to mean "do not write" would have
+  wiped both on any single-field apply.
+- **An `allow empty` opt-in for "take all".** By default it skips rows the
+  chosen source cannot fill, which leaves them on whatever was selected before --
+  so the result is a hybrid whose kept fields are precisely the ones the chosen
+  source is silent about. Artwork is the case that bites.
+
+Also added while building it: each column header carries that source's length
+and its distance from the file, and a strip under the path shows what the file
+already holds -- a result means nothing except against the file it is offered
+for. Both read the file's real duration, server-side; the player is not loaded
+at either entry point into the manual tagger.
+
+Open, deliberately: `other` (arbitrary frames) is still not a row, and column
+capping was never needed in practice -- the grid scrolls.
