@@ -1,5 +1,21 @@
 # Plan: getting this fork's work upstream
 
+**Status: candidate branches are pushed to `origin`; no upstream PRs yet
+(decided 2026-08-25).** The `pr/*` branches live on our fork so they are backed
+up, reviewable and shareable, and so the diffs stop existing only on one
+machine. Opening PRs against `Marekkon5/onetagger` is a separate, later
+decision and is **not** to be done on the strength of a branch being ready.
+
+Two reasons to hold. The fork exists to fit this setup first, and a candidate
+that has not been used here for a while is a candidate whose real behaviour is
+still unknown. And each one needs adapting to upstream's older code before it
+is honest to offer it -- the table below records what that adaptation is per
+branch, and that work has not been done.
+
+When the time comes: open them as **drafts** (`gh pr create --draft`), and let
+the operator be the one who marks them ready.
+
+
 ## Websocket + player fixes, ready to become PRs (2026-08-24)
 
 Four defects found while debugging a frozen tab, all verified present on
