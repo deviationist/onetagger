@@ -203,7 +203,17 @@ jobs:
       run: |
         brew install rustup
         rustup install stable
-        cargo install cargo-bundle --version 0.6.1 --locked || true
+        # `rustup install` puts a toolchain on disk but does not make it the
+        # default, so no cargo shim is on PATH and every later step dies with
+        # "cargo: command not found" (exit 127). Both lines are needed: the
+        # default selects the toolchain, and cargo/bin has to be on PATH for the
+        # *next* step, which is a fresh shell.
+        rustup default stable
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        # No `|| true`. It was swallowing this exact failure one step early, so
+        # the job reported its first error at `cargo build` -- several steps
+        # after the thing that actually went wrong.
+        cargo install cargo-bundle --version 0.6.1 --locked
     
     - name: Install NodeJS
       uses: actions/setup-node@v4
