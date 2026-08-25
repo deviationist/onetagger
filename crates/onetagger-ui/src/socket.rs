@@ -901,6 +901,18 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
                     "format": tag_wrap.format(),
                 })
             };
+            // Read the real length from the audio, the same way the autotagger
+            // does. It cannot come from the player: neither entry point into the
+            // manual tagger loads one -- QuickTag only sets the path, and the
+            // Tag Editor's button is a bare assignment -- so the player holds
+            // this file only if the operator happened to play it first. Nor from
+            // the duration *tag*, which is frequently absent and, when present,
+            // is only as honest as whatever wrote it.
+            let duration = AudioSources::from_path(&path)
+                .ok()
+                .map(|s| (s.duration() / 1000) as u64);
+            let mut info = info;
+            info["duration"] = json!(duration);
             send_socket(websocket, json!({
                 "action": "manualTagFileInfo",
                 "status": "ok",

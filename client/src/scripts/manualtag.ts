@@ -32,7 +32,6 @@ class ManualTag {
         this.busy = false;
         this.done = false;
         this.extended = false;
-        this.fileInfo = undefined;
     }
 
     /// Start tagging a track
@@ -72,6 +71,11 @@ class ManualTag {
     /// say whether artwork exists.
     async loadFileInfo(path: string): Promise<any> {
         const $1t = get1t();
+        // Cleared here rather than in reset(): reset() clears the *search*, and
+        // the file's own tags outlive it -- hitting Start must not blank the
+        // strip the results are being compared against. Clearing at load time
+        // still stops a new path briefly showing the previous file's tags.
+        this.fileInfo = undefined;
         let promise = new Promise<any>((res) => this._resolveFileInfo = res);
         $1t.send('manualTagFileInfo', { path });
         const r = await promise;
