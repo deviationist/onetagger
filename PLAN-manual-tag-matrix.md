@@ -86,10 +86,32 @@ is empty for every existing caller.
 
 ## Open questions
 
-- **Does `extend_track` need to run per source before composing?** Some
-  platforms fill `art` only during extension, so a matrix built on unextended
-  tracks may show empty cells that would not be empty after applying. If so the
-  matrix needs extended tracks up front, which costs a request per match.
+- ~~**Does `extend_track` need to run per source before composing?**~~
+  **Answered 2026-08-24: yes, for two platforms.** `musicbrainz.extend_track`
+  sets `track.art` from the Cover Art Archive when the release has a front or
+  back cover, and `traxsource` takes an `album_art` parameter. Every other
+  platform sets art during search or not at all.
+
+  So a matrix drawn on search results **understates** what those two can offer:
+  a MusicBrainz row would show an empty art cell for a release that would in
+  fact gain a cover on apply. The grid must either extend each match before
+  drawing -- one request per match, on a screen the operator is already waiting
+  at -- or mark those cells "unknown until applied" rather than "none", because
+  an empty cell is precisely the thing that sends you to another column.
+
+  Measured on `Savage Spirit - Afrodite (Gambaphro Mix)`, working on a copy:
+  three matches came back (musicbrainz 100% 6:03 no art, musicbrainz 75% 6:19
+  no art, discogs 100% 2:47 with art) against a file of 8:33. Applying the
+  art-less MusicBrainz match left the file with zero APIC frames, which looked
+  like proof that extension never fetches art -- it was not. That release simply
+  has no cover in the Archive. One negative sample cannot show that a
+  conditional branch never runs.
+
+  Note also what the run says about the premise: none of the three matches is
+  anywhere near 8:33, and Beatport -- where the good metadata was found by hand
+  -- returned nothing at all in this run, while beatsource errored on a network
+  request. Whatever the matrix does, it can only arbitrate between matches that
+  came back.
 - **Is `other` (arbitrary frames) worth exposing?** It is a list of
   `(FrameName, Vec<String>)` and could be dozens of rows.
 - **How wide is too wide?** Five matches × 16 fields is a big grid. Probably
