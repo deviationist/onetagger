@@ -9,8 +9,8 @@ import { ref } from 'vue';
 /// updates when the file info lands, and a plain object cannot be tracked by
 /// the computed, so it would sit stale and the test would be measuring the
 /// harness instead of the code.
-const state = vi.hoisted(() => {
-    const { ref } = require('vue');
+const state = await vi.hoisted(async () => {
+    const { ref } = await import('vue');
     return {
         manualTag: ref({ fileInfo: undefined as any }),
         player: ref({ path: undefined as string | undefined, duration: 0 }),
