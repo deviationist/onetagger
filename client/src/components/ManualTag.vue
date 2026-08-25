@@ -6,6 +6,19 @@
     <q-card-section>
         <div class='text-subtitle2 q-mb-xs text-bold text-center text-primary'>MANUAL TAG</div>
         <div class='monospace text-subtitle2 text-grey-6 text-center'>{{ path }}</div>
+        <!-- What the file already holds. The results below are only meaningful
+             against it -- "Beatport says 1998" means nothing until you can see
+             the file says 2003. Kept to a single scrolling line on purpose:
+             the vertical space belongs to the sources. -->
+        <div class='mt-current' v-if='fileChips.length'>
+            <span class='text-caption text-grey-7 q-mr-sm'>CURRENT</span>
+            <span v-for='c in fileChips' :key='c.label' class='q-mr-sm mt-chip'>
+                <q-badge outline color='grey-9'>
+                    <span class='text-uppercase text-grey-6'>{{ c.label }}</span>
+                </q-badge>
+                <span class='text-caption monospace text-grey-4 q-ml-xs'>{{ c.value }}</span>
+            </span>
+        </div>
         <!-- Two renderings of the same results, not two features. The list
              picks a winning *match*; the matrix picks a winning *source per
              field*, which is the thing the list cannot express. -->
@@ -230,6 +243,46 @@ const $q = useQuasar();
 const $1t = get1t();
 const show = ref(false);
 const emit = defineEmits(['exit']);
+/// The file's own tags, as short chips, in the order they are worth scanning.
+///
+/// Only fields that are present -- an absent one is a gap you can see in the
+/// results anyway, and padding the row with "—" would push the useful chips off
+/// the end of the line.
+const fileChips = computed<{ label: string, value: string }[]>(() => {
+    const i = $1t.manualTag.value.fileInfo;
+    if (!i) return [];
+    const first = (v: any) => Array.isArray(v) ? v.join(', ') : v;
+    const out: { label: string, value: string }[] = [];
+    const push = (label: string, v: any) => {
+        const s = first(v);
+        if (s !== undefined && s !== null && String(s).trim() !== '') out.push({ label, value: String(s) });
+    };
+    // Ordered by how quickly each settles "is this source even the same
+    // recording": title and version name it, length decides between mixes of it.
+    push('title', i.title);
+    push('version', i.version);
+    push('artist', i.artists);
+    push('album', i.album);
+    push('albumartist', i.albumArtists);
+    if (fileDuration.value) {
+        const d = fileDuration.value;
+        out.push({ label: 'length', value: `${Math.floor(d / 60)}:${String(d % 60).padStart(2, '0')}` });
+    }
+    push('bpm', i.bpm);
+    push('key', i.key);
+    push('date', i.date);
+    push('genre', i.genres);
+    push('styles', i.styles);
+    push('label', i.label);
+    push('cat', i.catalogNumber);
+    push('isrc', i.isrc);
+    push('remixers', i.remixers);
+    // Always shown, unlike the rest: "this file has no artwork" is a reason to
+    // go looking, so its absence is the informative case.
+    out.push({ label: 'art', value: i.hasArt ? 'yes' : 'none' });
+    return out;
+});
+
 const props = defineProps({
     path: { type: String, required: false }
 });
@@ -324,12 +377,30 @@ async function apply() {
 watch(path!, () => {
     // to bool
     show.value = !!(path!.value);
+    // Load what the file already has, so the strip is populated before any
+    // result arrives. Failure is silent: it is a comparison aid, and a missing
+    // strip is better than a dialog that refuses to open over it.
+    if (path!.value) $1t.manualTag.value.loadFileInfo(path!.value).catch(() => {});
 });
 
 
 </script>
 
 <style lang='scss' scoped>
+/* One line, and it scrolls rather than wraps. Wrapping would grow the header by
+   a row or two on a well-tagged file and eat exactly the space the results
+   need. */
+.mt-current {
+    margin-top: 8px;
+    text-align: center;
+    white-space: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+}
+.mt-current::-webkit-scrollbar { height: 3px; }
+.mt-chip { display: inline-block; }
+
 .manualtag-results {
     min-height: 50vh;
     height: 50vh;

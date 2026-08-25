@@ -104,6 +104,9 @@ enum Action {
     /// offer, rather than only what its search returned. Separate from apply
     /// because the operator chooses from these values before applying anything.
     ManualTagExtend { matches: Vec<TrackMatch>, path: PathBuf, config: TaggerConfig },
+    /// A compact summary of the tags the file already has, so the manual tagger
+    /// can show what you are comparing the sources against.
+    ManualTagFileInfo { path: PathBuf },
     /// Write a track the operator composed field by field in the matrix view.
     /// The precedence merge behind `ManualTagApply` cannot express this: it only
     /// knows first-selection-wins for scalars and union for arrays.
@@ -851,6 +854,57 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
                 "action": "manualTagExtended",
                 "status": "ok",
                 "matches": matches
+            })).await.ok();
+        },
+
+        // What the file already holds, for the manual tagger's header strip.
+        //
+        // Deliberately not TagEditorLoad, which is the obvious reuse: that
+        // carries every picture base64-encoded, which is hundreds of KB on every
+        // dialog open for something that only needs to say whether art exists.
+        // `has_art` is in the trait for exactly this reason. Fields go through
+        // `get_field` rather than the raw tag map so the strip reads the same
+        // for ID3, Vorbis and MP4 instead of showing TIT2 to one and TITLE to
+        // another.
+        Action::ManualTagFileInfo { path } => {
+            let path = paths::confine(&path)?;
+            // Scoped so the tag is dropped before the await below: `Tag` is not
+            // Send, and holding it across one makes the whole future unsendable.
+            let info = {
+                let tag_wrap = Tag::load_file(&path, false)?;
+                let tag = tag_wrap.tag();
+                let f = |field: Field| tag.get_field(field);
+                json!({
+                    "title": f(Field::Title),
+                    "artists": f(Field::Artist),
+                    "album": f(Field::Album),
+                    "albumArtists": f(Field::AlbumArtist),
+                    "genres": f(Field::Genre),
+                    "styles": f(Field::Style),
+                    "label": f(Field::Label),
+                    "bpm": f(Field::BPM),
+                    "key": f(Field::Key),
+                    "isrc": f(Field::ISRC),
+                    "catalogNumber": f(Field::CatalogNumber),
+                    "version": f(Field::Version),
+                    "remixers": f(Field::Remixer),
+                    // TagDate is not Serialize, and the strip wants one short
+                    // string anyway -- a year-only tag should read "1998", not
+                    // "1998-01-01", which would invent a precision the file does
+                    // not have.
+                    "date": tag.get_date().map(|d| match (d.month, d.day) {
+                        (Some(m), Some(day)) => format!("{}-{:02}-{:02}", d.year, m, day),
+                        (Some(m), None) => format!("{}-{:02}", d.year, m),
+                        _ => format!("{}", d.year),
+                    }),
+                    "hasArt": tag.has_art(),
+                    "format": tag_wrap.format(),
+                })
+            };
+            send_socket(websocket, json!({
+                "action": "manualTagFileInfo",
+                "status": "ok",
+                "info": info
             })).await.ok();
         },
 

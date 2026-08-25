@@ -362,6 +362,9 @@ class OneTagger {
                 this.onFolderBrowserEvent(json);
                 break;
             // Manual tag applied tags
+            case 'manualTagFileInfo':
+                this.manualTag.value._resolveFileInfo?.(json);
+                break;
             case 'manualTagExtended':
                 this.manualTag.value._resolveExtend?.(json);
                 break;
