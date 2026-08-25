@@ -21,7 +21,7 @@
                      scope toggle. It emits null, which every path below already
                      treats as empty -- including url.write, which drops the
                      param rather than writing the string "null". -->
-                <q-input dense filled label='Filter' class='q-mb-sm' clearable @update:model-value='(v: any) => applyFilter(v as string)' v-model='filter'>
+                <q-input dense filled label='Filter' class='q-mb-sm search-clearable' clearable @update:model-value='(v: any) => applyFilter(v as string)' v-model='filter'>
                     <template v-slot:append>
                         <q-btn-toggle
                             :model-value='scope'

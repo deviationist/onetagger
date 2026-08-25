@@ -7,8 +7,9 @@
                 dense
                 v-model='filter'
                 :label-slot="true"
-                class='q-pl-md qt-search-bar'
+                class='q-pl-md qt-search-bar search-clearable'
                 filled
+                clearable
                 @update:model-value='onFilterInput()'
             >
                 <template v-slot:label>
@@ -416,6 +417,13 @@ function onFilterInput() {
     url.write({ filter: filter.value });
     if (scope.value == 'library') {
         clearTimeout(searchDebounce);
+        // An empty box is not a search, so there is nothing to wait for: going
+        // through the debounce would leave results on screen for 350ms after
+        // they were dismissed. Covers the x and holding backspace alike.
+        if (!(filter.value ?? '').trim()) {
+            runLibrarySearch();
+            return;
+        }
         // The walk is cheap but each hit costs a tag read, so do not fire per
         // keystroke.
         searchDebounce = setTimeout(() => runLibrarySearch(), 350);
