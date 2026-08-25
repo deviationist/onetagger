@@ -356,7 +356,14 @@ watch(matches, resetToDefaults, { deep: false });
 .mtm-empty { background: rgba(255,255,255,0.02); }
 .mtm-dash { color: #616161; }
 .mtm-art { height: 34px; width: 34px; object-fit: cover; border-radius: 2px; vertical-align: middle; }
-.mtm-input { max-width: 140px; display: inline-block; vertical-align: middle; }
+/* The control and the field are two separate decisions -- ticking the source
+   and typing the value -- so they need to read as two things, not one. */
+.mtm-input {
+    max-width: 140px;
+    display: inline-block;
+    vertical-align: middle;
+    margin-left: 10px;
+}
 .mtm-all { font-size: 10px; opacity: 0.7; }
 .mtm-divider td {
     padding: 6px 8px; color: #9e9e9e; font-size: 11px;
