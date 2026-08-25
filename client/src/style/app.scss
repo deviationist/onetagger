@@ -263,3 +263,12 @@ code {
 .search-clearable.q-field--dense .q-field__append {
     padding-left: 0;
 }
+
+/* ...except the gap between the x and the scope toggle, which zero padding
+   closed entirely. Put back on the toggle rather than on the container it sits
+   in, so it does not depend on how many append nodes Quasar renders, and so it
+   applies only where a toggle exists -- the file browser's filter has none and
+   should stay flush. */
+.search-clearable .q-btn-toggle {
+    margin-left: 6px;
+}
