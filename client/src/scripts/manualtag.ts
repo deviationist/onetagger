@@ -13,6 +13,9 @@ class ManualTag {
     
     _resolveSaving?: Function;
     _resolveExtend?: Function;
+    _resolveFileInfo?: Function;
+    /// What the file already holds, shown for comparison against the results.
+    fileInfo?: any;
     /// Whether `extend()` has already run for the current result set.
     extended = false;
 
@@ -29,6 +32,7 @@ class ManualTag {
         this.busy = false;
         this.done = false;
         this.extended = false;
+        this.fileInfo = undefined;
     }
 
     /// Start tagging a track
@@ -59,6 +63,21 @@ class ManualTag {
         let r = await promise;
         this._resolveSaving = undefined;
         return r;
+    }
+
+    /// Load a summary of the tags the file already has.
+    ///
+    /// Not the Tag Editor's loader, which carries every embedded picture
+    /// base64-encoded -- hundreds of KB per open for a strip that only needs to
+    /// say whether artwork exists.
+    async loadFileInfo(path: string): Promise<any> {
+        const $1t = get1t();
+        let promise = new Promise<any>((res) => this._resolveFileInfo = res);
+        $1t.send('manualTagFileInfo', { path });
+        const r = await promise;
+        this._resolveFileInfo = undefined;
+        this.fileInfo = r?.status === 'ok' ? r.info : undefined;
+        return this.fileInfo;
     }
 
     /// Ask the backend to extend every match, so the matrix draws what a
