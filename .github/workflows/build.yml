@@ -215,10 +215,14 @@ jobs:
         # Fail here, naming itself, rather than several steps later as an exit
         # code from whatever happened to run next.
         cargo --version
-        # No `|| true`. It was swallowing this exact failure one step early, so
-        # the job reported its first error at `cargo build` -- several steps
-        # after the thing that actually went wrong.
-        cargo install cargo-bundle --version 0.6.1 --locked
+        # Test the condition rather than ignore every error. The Rust Cache
+        # step restores ~/.cargo/bin, so on any run after the first this binary
+        # is already there and `cargo install` exits 101 with "already exists in
+        # destination". `|| true` used to hide that -- and hid cargo being
+        # missing entirely along with it, which is what made the original
+        # failure surface several steps from its cause. `--force` would work but
+        # rebuilds it from source every run for nothing.
+        command -v cargo-bundle >/dev/null || cargo install cargo-bundle --version 0.6.1 --locked
     
     - name: Install NodeJS
       uses: actions/setup-node@v4
