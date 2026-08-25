@@ -17,7 +17,11 @@
             <div class='q-mt-sm'>
 
                 <!-- Filter -->
-                <q-input dense filled label='Filter' class='q-mb-sm' @update:model-value='(v: any) => applyFilter(v as string)' v-model='filter'>
+                <!-- `clearable` puts the x in the append area, ahead of the
+                     scope toggle. It emits null, which every path below already
+                     treats as empty -- including url.write, which drops the
+                     param rather than writing the string "null". -->
+                <q-input dense filled label='Filter' class='q-mb-sm' clearable @update:model-value='(v: any) => applyFilter(v as string)' v-model='filter'>
                     <template v-slot:append>
                         <q-btn-toggle
                             :model-value='scope'
@@ -674,6 +678,13 @@ function applyFilter(v: string) {
     url.write({ filter: v });
     if (scope.value == 'library') {
         clearTimeout(searchDebounce);
+        // An empty box is not a search, so there is nothing to wait for: going
+        // through the debounce would leave results on screen for 350ms after
+        // they were dismissed. Covers the x and holding backspace alike.
+        if (!(v ?? '').trim()) {
+            runLibrarySearch();
+            return;
+        }
         searchDebounce = setTimeout(() => runLibrarySearch(), 350);
         return;
     }
