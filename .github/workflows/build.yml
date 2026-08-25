@@ -11,6 +11,38 @@ permissions:
   contents: read
 
 jobs:
+  # Runs on its own rather than gating the platform builds: it is seconds where
+  # they are minutes, so a red cross appears long before they finish, and a
+  # broken toolchain on one platform should not hide a failing test.
+  #
+  # Its own Node version on purpose. The build jobs pin 18; vitest 4 requires
+  # ^20 || ^22 || >=24, so sharing their version would fail at startup rather
+  # than on a test.
+  client-tests:
+    name: Client tests
+    runs-on: ubuntu-22.04
+
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install NodeJS
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 8
+
+    - name: Test
+      run: |
+        cd client
+        pnpm i
+        pnpm test
+
   build-linux:
     name: Linux
     runs-on: ubuntu-22.04
