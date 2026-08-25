@@ -11,8 +11,8 @@
              the file says 2003. Kept to a single scrolling line on purpose:
              the vertical space belongs to the sources. -->
         <div class='mt-current' v-if='fileChips.length'>
-            <span class='text-caption text-grey-7 q-mr-sm'>CURRENT</span>
-            <span v-for='c in fileChips' :key='c.label' class='q-mr-sm mt-chip'>
+            <span class='text-caption text-grey-7'>CURRENT</span>
+            <span v-for='c in fileChips' :key='c.label' class='mt-chip'>
                 <q-badge outline color='grey-9'>
                     <span class='text-uppercase text-grey-6'>{{ c.label }}</span>
                 </q-badge>
@@ -387,19 +387,23 @@ watch(path!, () => {
 </script>
 
 <style lang='scss' scoped>
-/* One line, and it scrolls rather than wraps. Wrapping would grow the header by
-   a row or two on a well-tagged file and eat exactly the space the results
-   need. */
+/* Wraps onto a second line rather than scrolling sideways -- a chip pushed off
+   the right edge is invisible, and you cannot compare against what you cannot
+   see. Capped at two rows so a well-tagged file cannot push the results down
+   the page; anything beyond that scrolls vertically rather than being hidden. */
 .mt-current {
     margin-top: 8px;
-    text-align: center;
-    white-space: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding-bottom: 2px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 1px 10px;
+    line-height: 22px;
+    max-height: 46px;
+    overflow-y: auto;
 }
-.mt-current::-webkit-scrollbar { height: 3px; }
-.mt-chip { display: inline-block; }
+.mt-current::-webkit-scrollbar { width: 3px; }
+.mt-chip { display: inline-block; white-space: nowrap; }
 
 .manualtag-results {
     min-height: 50vh;
