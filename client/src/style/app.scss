@@ -252,5 +252,14 @@ code {
    icon, and doing that to every clearable field in the app is a wider change
    than was asked for. */
 .search-clearable .q-field__focusable-action {
-    font-size: 20px;
+    font-size: 16px;
+}
+
+/* Quasar gives a dense field's append area `padding-left: 6px`, which on these
+   boxes buys nothing: the browser panel is narrow and two of the three fields
+   also carry a scope toggle in the same area. The extra specificity is there to
+   beat `.q-field--dense .q-field__append` rather than to reach for
+   !important. */
+.search-clearable.q-field--dense .q-field__append {
+    padding-left: 0;
 }
