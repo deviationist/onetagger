@@ -204,12 +204,17 @@ jobs:
         brew install rustup
         rustup install stable
         # `rustup install` puts a toolchain on disk but does not make it the
-        # default, so no cargo shim is on PATH and every later step dies with
-        # "cargo: command not found" (exit 127). Both lines are needed: the
-        # default selects the toolchain, and cargo/bin has to be on PATH for the
-        # *next* step, which is a fresh shell.
+        # default, so no cargo shim reaches PATH and everything after it dies
+        # with "cargo: command not found" (exit 127).
         rustup default stable
+        # Two mechanisms, because they cover different scopes -- and using only
+        # the second is why the first attempt at this fix still failed.
+        # GITHUB_PATH applies to *later* steps, so it does nothing for the cargo
+        # call below, which runs in this shell; the export does nothing for the
+        # build step, which is a fresh one.
+        export PATH="$HOME/.cargo/bin:$PATH"
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        cargo --version
         # No `|| true`. It was swallowing this exact failure one step early, so
         # the job reported its first error at `cargo build` -- several steps
         # after the thing that actually went wrong.
