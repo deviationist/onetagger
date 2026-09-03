@@ -51,7 +51,7 @@
                 v-if="view == 'matrix' && $1t.manualTag.value.matches.length > 0"
                 :matches='$1t.manualTag.value.matches'
                 :path='path!'
-                :config='cachedConfig'
+                :config='liveConfig'
                 @applied='exit'
             />
 
@@ -316,17 +316,24 @@ const viewOptions = computed(() => {
     return out;
 });
 const errorList = ref(false);
-let cachedConfig = {};
+/// The config every write goes out with, rebuilt whenever the settings change.
+///
+/// It used to be captured once -- by `start()`, immediately before a search, so
+/// it was current by construction. Direct match broke that: the capture moved to
+/// the moment a release is added, and this component is mounted once for the
+/// life of the Tag Editor, so the first capture was then frozen for the whole
+/// page session. Ticking Title in the tag panel afterwards changed nothing the
+/// apply could see, which looks exactly like the write silently failing.
+///
+/// A computed over `$1t.config.value` instead: it is deep-read here, so any
+/// change to the enabled tags or overwrite settings recomputes it, and Apply
+/// always sends what the panel currently shows.
+const liveConfig = computed<AutotaggerConfig>(() => buildConfig());
 
 /// Start manual tagger
 function start() {
-    // `tagTrack` resets, keeping anything picked by hand -- so the config is
-    // built here and the reset left to it, rather than clearing twice.
-    let config = buildConfig();
-    cachedConfig = config;
-
-    // Start
-    $1t.manualTag.value.tagTrack(path!.value!, config);
+    // `tagTrack` resets, keeping anything picked by hand.
+    $1t.manualTag.value.tagTrack(path!.value!, liveConfig.value);
 }
 
 /// Take matches the operator named by hand into the result set.
@@ -336,9 +343,6 @@ function start() {
 /// release arrives as one more column to arbitrate against.
 function onDirectAdd(matches: TrackMatch[]) {
     if (!matches.length) return;
-    // Direct match can be reached before a search has ever run, and the matrix
-    // needs a config to extend with either way.
-    if (!Object.keys(cachedConfig).length) cachedConfig = buildConfig();
     $1t.manualTag.value.addDirect(matches);
     view.value = 'list';
     $q.notify({
@@ -388,7 +392,7 @@ function accuracyColor(acc: number) {
 /// Apply the matches
 async function apply() {
     saving.value = true;
-    let response: any = await $1t.manualTag.value.apply(selected.value, path!.value!, cachedConfig as AutotaggerConfig);
+    let response: any = await $1t.manualTag.value.apply(selected.value, path!.value!, liveConfig.value);
     // All ok
     if (response.status == 'ok') {
         $q.notify({

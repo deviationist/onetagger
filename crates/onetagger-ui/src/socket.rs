@@ -831,6 +831,13 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
         // Apply the tags from manual tagger
         Action::ManualTagApply { matches, path, config } => {
             let path = paths::confine(&path)?;
+            // What a write was actually asked to do. `write_to_file` gates every
+            // field on `tag_enabled`, so a config whose tag list is missing the
+            // field you were watching writes nothing you would notice and still
+            // reports success -- indistinguishable from a broken write without
+            // this line.
+            info!("Manual tag apply: {} match(es), overwrite={}, tags={:?}",
+                matches.len(), config.overwrite, config.tags);
             match onetagger_autotag::manual_tagger_apply(matches, path, &config) {
                 Ok(_) => {
                     send_socket(websocket, json!({
@@ -933,6 +940,11 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
         // Write a composite the operator built in the matrix view.
         Action::ManualTagApplyComposed { track, path, config } => {
             let path = paths::confine(&path)?;
+            // Same reasoning as ManualTagApply, plus the composed values --
+            // the matrix can compose a track with a field left unselected, which
+            // is a second way for a write to be a legitimate no-op.
+            info!("Manual tag apply (composed): title={:?}, artists={:?}, overwrite={}, tags={:?}",
+                track.title, track.artists, config.overwrite, config.tags);
             match onetagger_autotag::manual_tagger_apply_composed(track, path, &config) {
                 Ok(_) => {
                     send_socket(websocket, json!({
