@@ -162,7 +162,7 @@
 </template>
 
 <script lang='ts' setup>
-import { ref, reactive, computed, watch, onMounted, toRefs, PropType } from 'vue';
+import { ref, reactive, computed, watch, toRefs, PropType } from 'vue';
 import { useQuasar } from 'quasar';
 import { get1t } from '../scripts/onetagger';
 import type { TrackMatch } from '../scripts/manualtag';
@@ -339,7 +339,14 @@ watch(allowEmpty, (on) => {
     }
 });
 
-onMounted(resetToDefaults);
+// Seeded here, in setup, rather than in `onMounted`. The table reads
+// `arr[f.key]` inside a nested v-for, and a mounted hook runs *after* the first
+// render -- so every open of this view threw
+// `Cannot read properties of undefined (reading 'includes')` on that first
+// pass, then rendered correctly on the re-render the hook triggered. Vue logs a
+// render error and carries on, so the view looked fine and only the console
+// said otherwise.
+resetToDefaults();
 watch(matches, resetToDefaults, { deep: false });
 </script>
 
