@@ -111,6 +111,16 @@ enum Action {
     /// The precedence merge behind `ManualTagApply` cannot express this: it only
     /// knows first-selection-wins for scalars and union for arrays.
     ManualTagApplyComposed { track: Track, path: PathBuf, config: TaggerConfig },
+
+    /// Free-text release search on one platform, for when the operator is doing
+    /// the matching rather than the matcher. No path: nothing is read or written
+    /// until a track is picked and applied through the existing manual-tag path.
+    DirectMatchSearch { platform: String, query: String, config: TaggerConfig },
+    /// Resolve a pasted platform URL to (platform, id) without authenticating or
+    /// hitting the network -- the builders answer it from the URL shape alone.
+    DirectMatchUrl { url: String },
+    /// Every track on one named release, as candidate matches.
+    DirectMatchFetch { platform: String, id: String, config: TaggerConfig },
 }
 
 
@@ -935,6 +945,75 @@ async fn handle_message(text: &str, websocket: &mut WebSocket, context: &mut Soc
                     send_socket(websocket, json!({
                         "action": "manualTagApplied",
                         "status": "error",
+                        "error": e.to_string()
+                    })).await.ok();
+                },
+            }
+        },
+
+        // Direct match: search one platform for releases.
+        //
+        // spawn_blocking like the other platform calls -- Discogs sleeps inside
+        // `get()` to hold its own rate limit, and the socket task must not be
+        // the thing that sleeps.
+        Action::DirectMatchSearch { platform, query, config } => {
+            let p = platform.clone();
+            let r = tokio::task::spawn_blocking(move || {
+                onetagger_autotag::direct_match_search(&p, &query, &config)
+            }).await.unwrap();
+            match r {
+                Ok(candidates) => {
+                    send_socket(websocket, json!({
+                        "action": "directMatchSearch",
+                        "status": "ok",
+                        "platform": platform,
+                        "candidates": candidates
+                    })).await.ok();
+                },
+                Err(e) => {
+                    error!("Direct match search failed on {platform}: {e}");
+                    send_socket(websocket, json!({
+                        "action": "directMatchSearch",
+                        "status": "error",
+                        "platform": platform,
+                        "error": e.to_string()
+                    })).await.ok();
+                },
+            }
+        },
+
+        // Direct match: whose URL is this?
+        Action::DirectMatchUrl { url } => {
+            let parsed = onetagger_autotag::direct_match_parse_url(&url);
+            send_socket(websocket, json!({
+                "action": "directMatchUrl",
+                "status": "ok",
+                "platform": parsed.as_ref().map(|(p, _)| p),
+                "id": parsed.as_ref().map(|(_, i)| i)
+            })).await.ok();
+        },
+
+        // Direct match: the tracklist of one named release.
+        Action::DirectMatchFetch { platform, id, config } => {
+            let p = platform.clone();
+            let r = tokio::task::spawn_blocking(move || {
+                onetagger_autotag::direct_match_fetch(&p, &id, &config)
+            }).await.unwrap();
+            match r {
+                Ok(matches) => {
+                    send_socket(websocket, json!({
+                        "action": "directMatchFetch",
+                        "status": "ok",
+                        "platform": platform,
+                        "matches": matches
+                    })).await.ok();
+                },
+                Err(e) => {
+                    error!("Direct match fetch failed on {platform}: {e}");
+                    send_socket(websocket, json!({
+                        "action": "directMatchFetch",
+                        "status": "error",
+                        "platform": platform,
                         "error": e.to_string()
                     })).await.ok();
                 },

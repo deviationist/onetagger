@@ -10,7 +10,8 @@ use serde_json::Value;
 use serde::{Serialize, Deserialize};
 use onetagger_tag::FrameName;
 use onetagger_tagger::{Track, AutotaggerSource, TaggerConfig, AudioFileInfo, MatchingUtils, TrackNumber, 
-    AutotaggerSourceBuilder, PlatformInfo, PlatformCustomOptions, PlatformCustomOptionValue, supported_tags, SupportedTag, TrackMatch};
+    AutotaggerSourceBuilder, PlatformInfo, PlatformCustomOptions, PlatformCustomOptionValue, supported_tags, SupportedTag, TrackMatch,
+    ReleaseCandidate};
 
 pub struct Discogs {
     client: Client,
@@ -248,7 +249,48 @@ impl AutotaggerSource for Discogs {
         Ok(())
     }
 
-    
+    fn search_releases(&mut self, query: &str, _config: &TaggerConfig) -> Result<Vec<ReleaseCandidate>, Error> {
+        // Releases only, not masters. A master is a grouping: no catalogue
+        // number, no country, no release date, and a tracklist borrowed from its
+        // main release -- so as a tagging target it is strictly worse than the
+        // pressing underneath it, and listing both would double every row.
+        // Master *URLs* are still accepted; see `fetch_release`.
+        Ok(self.search(Some("release"), Some(query), None, None)?
+            .into_iter()
+            .map(|r| r.into_candidate())
+            .collect())
+    }
+
+    fn fetch_release(&mut self, id: &str, config: &TaggerConfig) -> Result<Vec<TrackMatch>, Error> {
+        let discogs_config: DiscogsConfig = config.get_custom("discogs")?;
+        // Bare ids are read as releases so a hand-typed number still works.
+        let (kind, raw) = id.split_once(':').unwrap_or(("release", id));
+        let numeric: i64 = raw.trim().parse().map_err(|_| anyhow!("Not a Discogs id: {id}"))?;
+
+        let release = match kind {
+            "master" => {
+                let master = self.full_release(ReleaseType::Master, numeric)?;
+                match master.main_release {
+                    // Resolve to the pressing Discogs itself calls canonical --
+                    // that is the one carrying label, catalogue number and date.
+                    Some(main) => self.full_release(ReleaseType::Release, main)?,
+                    // Malformed, but the master's own tracklist still tags.
+                    None => master,
+                }
+            },
+            _ => self.full_release(ReleaseType::Release, numeric)?,
+        };
+
+        Ok(release.tracks
+            .iter()
+            .enumerate()
+            // Discogs tracklists interleave headings ("Side A") with tracks, and
+            // a heading has no position. Enumerated *before* filtering because
+            // `get_track` indexes into the untouched list.
+            .filter(|(_, t)| !t.position.trim().is_empty())
+            .map(|(i, _)| TrackMatch::new_id(release.get_track(i, &discogs_config)))
+            .collect())
+    }
 
 }
 
@@ -261,20 +303,62 @@ pub enum ReleaseType {
 }
 
 // Used in search results
+///
+/// Everything past `url` was commented out upstream, which is fine while the
+/// only consumer is `match_track` -- it fetches the full release anyway and
+/// needs nothing but the id. A direct-match picker is the opposite case: the
+/// operator chooses *between* these rows, and two pressings of one album are
+/// told apart by year, country, format and catalogue number alone.
+///
+/// All optional, and none of it trusted: Discogs omits fields per result type
+/// (a master has no catno or country) and `year` arrives as a string.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReleaseMasterSearchResult {
     pub id: i64,
-    // pub country: String,
-    // pub year: Option<String>,
-    // pub label: Vec<String>,
-    // pub genre: Vec<String>,
-    // pub style: Vec<String>,
     #[serde(rename = "type")]
     pub rtype: ReleaseType,
     #[serde(rename = "resource_url")]
     pub url: String,
-    // #[serde(rename = "cover_image")]
-    // pub album_art: String
+    /// "Artist - Album", already joined by Discogs. Left whole rather than split
+    /// on " - ": plenty of artist names contain that separator themselves.
+    pub title: Option<String>,
+    pub year: Option<String>,
+    pub country: Option<String>,
+    pub label: Option<Vec<String>>,
+    pub format: Option<Vec<String>>,
+    pub catno: Option<String>,
+    pub thumb: Option<String>,
+    pub cover_image: Option<String>,
+    pub uri: Option<String>,
+}
+
+impl ReleaseMasterSearchResult {
+    /// Into a platform-neutral picker row
+    pub fn into_candidate(self) -> ReleaseCandidate {
+        ReleaseCandidate {
+            id: format!("{}:{}", match self.rtype {
+                ReleaseType::Release => "release",
+                ReleaseType::Master => "master",
+            }, self.id),
+            title: self.title.unwrap_or_else(|| format!("Discogs {}", self.id)),
+            // Search rows carry no artist array of their own -- the name is
+            // inside `title`. Left empty rather than guessed at.
+            artists: vec![],
+            year: self.year.as_ref().and_then(|y| y.trim().parse().ok()),
+            label: self.label.as_ref().and_then(|l| l.first().cloned()),
+            catalog_number: self.catno.filter(|c| c != "none" && !c.trim().is_empty()),
+            format: self.format.as_ref().map(|f| f.join(", ")).filter(|f| !f.is_empty()),
+            country: self.country,
+            // Not in a search response; only a full fetch knows.
+            track_count: None,
+            art: self.thumb.filter(|t| !t.is_empty()).or(self.cover_image),
+            url: Some(match self.uri {
+                Some(uri) if uri.starts_with("http") => uri,
+                Some(uri) => format!("https://www.discogs.com{uri}"),
+                None => format!("https://www.discogs.com/release/{}", self.id),
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -463,6 +547,23 @@ impl AutotaggerSourceBuilder for DiscogsBuilder {
             discogs.set_rate_limit(rl as i16);
         }
         Ok(Box::new(discogs))
+    }
+
+    fn supports_direct_match(&self) -> bool {
+        true
+    }
+
+    /// Recognise a Discogs release or master URL.
+    ///
+    /// Covers the shapes a browser actually produces: a bare
+    /// `discogs.com/release/12345`, the slugged `.../release/12345-Some-Title`,
+    /// the localised `.../fr/release/12345`, and the API's plural
+    /// `api.discogs.com/releases/12345`. The id is returned prefixed, because
+    /// 12345 names two different records depending on which of the two it is.
+    fn parse_url(&self, url: &str) -> Option<String> {
+        let re = Regex::new(r"(?i)discogs\.com/(?:[a-z]{2}(?:_[A-Z]{2})?/)?(release|master)s?/(\d+)").ok()?;
+        let c = re.captures(url)?;
+        Some(format!("{}:{}", c.get(1)?.as_str().to_lowercase(), c.get(2)?.as_str()))
     }
 
     fn info(&self) -> PlatformInfo {

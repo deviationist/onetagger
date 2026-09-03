@@ -15,7 +15,7 @@ use std::default::Default;
 use std::io::prelude::*;
 use chrono::Local;
 use execute::Execute;
-use onetagger_tagger::{FileTaggedStatus, LyricsExt, MatchReason, MatchingUtils, SupportedTag, TrackMatch};
+use onetagger_tagger::{FileTaggedStatus, LyricsExt, MatchReason, MatchingUtils, ReleaseCandidate, SupportedTag, TrackMatch};
 use regex::Regex;
 use reqwest::StatusCode;
 use walkdir::WalkDir;
@@ -1327,6 +1327,57 @@ pub fn manual_tagger_extend(matches: &mut Vec<TrackMatch>, config: &TaggerConfig
             Err(e) => warn!("Failed extending track using: {}. {e}", m.track.platform),
         }
     }
+}
+
+/// Search one platform for releases, for operator-driven matching.
+///
+/// Deliberately one platform rather than the fan-out `manual_tagger` does: this
+/// runs while someone types, and Discogs alone sleeps to hold itself under 60
+/// requests a minute. Fanning out would multiply that wait by the number of
+/// enabled platforms to fill a list only one row of which will be chosen.
+pub fn direct_match_search(platform: &str, query: &str, config: &TaggerConfig) -> Result<Vec<ReleaseCandidate>, Error> {
+    let mut s = direct_match_source(platform, config)?;
+    s.search_releases(query, config)
+}
+
+/// Every track on one named release, as pickable matches.
+pub fn direct_match_fetch(platform: &str, id: &str, config: &TaggerConfig) -> Result<Vec<TrackMatch>, Error> {
+    let mut s = direct_match_source(platform, config)?;
+    let mut matches = s.fetch_release(id, config)?;
+    // `match_track` sets this on the way out; `fetch_release` implementations
+    // should not each have to remember to. Without it the client cannot tell
+    // which platform a row came from, and the matrix draws unlabelled columns.
+    for m in matches.iter_mut() {
+        m.track.platform = platform.to_string();
+    }
+    Ok(matches)
+}
+
+/// Ask each platform that supports direct matching whether a URL is one of its
+/// own, and return the first that claims it.
+///
+/// Answered from the *builders*, so nothing is authenticated and no network call
+/// is made to find out. A URL nobody claims is `Ok(None)` rather than an error:
+/// the caller turns that into "paste a Discogs link", which is more use than a
+/// stack of per-platform rejections.
+pub fn direct_match_parse_url(url: &str) -> Option<(String, String)> {
+    let platforms = AUTOTAGGER_PLATFORMS.lock().unwrap();
+    for p in platforms.platforms.iter() {
+        if !p.info.supports_direct_match {
+            continue;
+        }
+        if let Some(id) = p.platform.parse_url(url) {
+            return Some((p.info.platform.id.clone(), id));
+        }
+    }
+    None
+}
+
+/// Shared source construction for the two calls above.
+fn direct_match_source(platform: &str, config: &TaggerConfig) -> Result<Box<dyn AutotaggerSource>, Error> {
+    let mut platforms = AUTOTAGGER_PLATFORMS.lock().unwrap();
+    let p = platforms.get_builder(platform).ok_or(anyhow!("Invalid platform: {platform}"))?;
+    p.get_source(config)
 }
 
 /// Write an already-composed track straight to the file.
