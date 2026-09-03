@@ -527,6 +527,24 @@ const sortMode = ref<BrowserSort>(migrateBrowserSort(url.read('sort') ?? $1t.set
 const sortDescending = ref<boolean>(url.readBool('desc') ?? ($1t.settings.value.tagEditorSortDescending === true));
 
 
+/// Open the file a ?file= link named, once a listing has arrived.
+///
+/// Deferred to the listing rather than run on mount because the folder path
+/// calls `closeIfFileVanished` first: opening ahead of it would hand that
+/// function a file it is about to decide is missing.
+///
+/// Called from *both* listing paths. It used to live only in the folder
+/// handler, which meant a `?scope=library` link -- one that searches instead of
+/// listing a folder -- never reached it, and opened to the results with no file
+/// loaded. Consumed once, so a search the operator runs later does not reopen
+/// the file they navigated away from.
+function openPendingUrlFile() {
+    if (!pendingUrlFile.value) return;
+    const target = pendingUrlFile.value;
+    pendingUrlFile.value = undefined;
+    loadFile(target);
+}
+
 /// Last known folder signature, so a change can be told from a first look.
 /// Reset whenever the folder changes, or the new folder's first reply would
 /// read as a change and cause a redundant reload.
@@ -1218,13 +1236,7 @@ function wsCallback(e: any) {
                 searchTruncated.value = false;
                 applyFolderFilter();
                 closeIfFileVanished(e.path, e.files);
-                // Deep link: open the requested file once the folder holding it
-                // has loaded. Guarded so navigating away later doesn't reopen it.
-                if (pendingUrlFile.value) {
-                    const target = pendingUrlFile.value;
-                    pendingUrlFile.value = undefined;
-                    loadFile(target);
-                }
+                openPendingUrlFile();
             }
             saveSettings();
             break;
@@ -1282,6 +1294,11 @@ $1t.onTagEditorSearchEvent = (json: any) => {
     searchQuery.value = json.query;
     searchTruncated.value = json.truncated;
     files.value = json.files;
+    // A search is the other way a listing arrives, so it owes the deep link the
+    // same open the folder listing does. Not conditional on the file appearing
+    // in `json.files`: the link named it, and the search that restored the view
+    // is a filter over the library rather than a claim about what exists.
+    openPendingUrlFile();
 };
 
 /// Catch up the moment the tab is looked at again.
