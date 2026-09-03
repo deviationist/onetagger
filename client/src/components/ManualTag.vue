@@ -426,10 +426,14 @@ watch(path!, () => {
 </script>
 
 <style lang='scss' scoped>
-/* Wraps onto a second line rather than scrolling sideways -- a chip pushed off
-   the right edge is invisible, and you cannot compare against what you cannot
-   see. Capped at two rows so a well-tagged file cannot push the results down
-   the page; anything beyond that scrolls vertically rather than being hidden. */
+/* Wraps rather than scrolling sideways -- a chip pushed off the right edge is
+   invisible, and you cannot compare against what you cannot see.
+
+   It used to cap at two rows and scroll the rest, which had the same fault in
+   the other direction: a 3px scrollbar is not an invitation, so a file with
+   enough tags to matter hid the ones past row two. The strip is the thing every
+   result is read against, so it shows all of it and takes the height that
+   needs. */
 .mt-current {
     margin-top: 8px;
     display: flex;
@@ -438,10 +442,7 @@ watch(path!, () => {
     justify-content: center;
     gap: 1px 10px;
     line-height: 22px;
-    max-height: 46px;
-    overflow-y: auto;
 }
-.mt-current::-webkit-scrollbar { width: 3px; }
 .mt-chip { display: inline-block; white-space: nowrap; }
 
 .manualtag-results {
