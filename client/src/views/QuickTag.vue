@@ -444,6 +444,30 @@ function runLibrarySearch() {
 }
 
 /// Switch between filtering the folder and searching the library.
+/// Select the track a ?track= link named, once a list holding it has arrived.
+///
+/// Called from both ways a list arrives -- a folder load and a library search.
+/// It used to sit only in the folder load, so a `scope=library` link opened to
+/// its results with nothing selected.
+///
+/// Returns whether it selected anything, because the folder path uses that to
+/// skip restoring the last-opened track over the top of it.
+///
+/// Membership in the list is required here, unlike the Tag Editor's equivalent:
+/// `loadQTTrack` takes the track object the list holds, not a path, so there is
+/// nothing to select if the list does not have it. The pending value is spent
+/// either way -- a link whose track the search did not return is not going to
+/// be answered by the next list either.
+function selectPendingUrlTrack(): boolean {
+    if (!pendingUrlTrack.value || $1t.quickTag.value.tracks.length == 0) return false;
+    const wanted = pendingUrlTrack.value;
+    pendingUrlTrack.value = undefined;
+    const found = $1t.quickTag.value.tracks.find((t: any) => t.path == wanted);
+    if (!found) return false;
+    setTimeout(() => $1t.loadQTTrack(found), 50);
+    return true;
+}
+
 function setScope(v: 'folder' | 'library') {
     scope.value = v;
     // Default scope leaves no param behind, matching how `bsort` is written.
@@ -750,6 +774,11 @@ onMounted(() => {
                 // Results arrived; re-run sorting so the list obeys the current
                 // sort option, exactly as a folder load does.
                 filterTracks();
+                // And, exactly as a folder load does, honour a ?track= link.
+                // A `scope=library` link searches instead of listing a folder,
+                // so without this the deep link never reached its selection --
+                // the view opened on the results with nothing selected.
+                selectPendingUrlTrack();
                 break;
 
             case 'quickTagLoad': {
@@ -778,15 +807,7 @@ onMounted(() => {
                 // Must run before the trackIndex restore below, which early-
                 // returns when no index was saved -- the common case for a link
                 // opened in a fresh session.
-                if (pendingUrlTrack.value && $1t.quickTag.value.tracks.length > 0) {
-                    const wanted = pendingUrlTrack.value;
-                    pendingUrlTrack.value = undefined;
-                    const found = $1t.quickTag.value.tracks.find((t: any) => t.path == wanted);
-                    if (found) {
-                        setTimeout(() => $1t.loadQTTrack(found), 50);
-                        break;
-                    }
-                }
+                if (selectPendingUrlTrack()) break;
                 if ($1t.settings.value.quickTag.trackIndex == -1 || $1t.quickTag.value.tracks.length == 0 || $1t.lock.value.locked) return;
                 // Reload last opened track track
                 setTimeout(() => {
