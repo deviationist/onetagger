@@ -78,6 +78,7 @@ impl AutotaggerPlatforms {
                 },
                 supported_tags: info.supported_tags.clone(),
                 requires_auth: info.requires_auth,
+                supports_direct_match: P::new().supports_direct_match(),
                 platform: info,
             },
             platform: Box::new(P::new())
@@ -142,6 +143,13 @@ pub struct AutotaggerPlatformInfo {
     pub icon: String,
     pub requires_auth: bool,
     pub supported_tags: Vec<SupportedTag>,
+    /// Whether the platform can be searched or handed a URL by hand.
+    ///
+    /// Lives here rather than in `PlatformInfo` deliberately: that struct is
+    /// `repr(C)` and crosses the plugin FFI boundary, so growing it would change
+    /// the layout every already-compiled custom platform returns. This one is
+    /// ours, serde-only, and never leaves the process except as JSON.
+    pub supports_direct_match: bool,
 }
 
 
@@ -200,6 +208,9 @@ impl CustomPlatform {
                 },
                 supported_tags: lib.info.supported_tags.clone(),
                 requires_auth: lib.info.requires_auth,
+                // The FFI exports only match_track and extend_track, so a custom
+                // platform has no way to answer this even if it could.
+                supports_direct_match: false,
             },
             platform: Box::new(lib)
         })

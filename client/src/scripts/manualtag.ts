@@ -2,6 +2,25 @@ import { AutotaggerConfig, Track } from "./autotagger";
 import { get1t } from "./onetagger";
 import { wsUrl } from "./utils";
 
+/// The config the manual tagger sends with every request.
+///
+/// Shared rather than built at each call site: the direct-match panel needs the
+/// same platform credentials the search does -- Discogs will not answer without
+/// its token -- and two copies of this would drift the moment one gained a
+/// field.
+function buildConfig(): AutotaggerConfig {
+    const $1t = get1t();
+    let config = JSON.parse(JSON.stringify($1t.config.value));
+    config.path = '';
+    if ($1t.spotify.value.clientId && $1t.spotify.value.clientSecret) {
+        config.spotify = {
+            clientId: $1t.spotify.value.clientId,
+            clientSecret: $1t.spotify.value.clientSecret,
+        }
+    }
+    return config;
+}
+
 class ManualTag {
 
     ws?: WebSocket;
@@ -14,6 +33,17 @@ class ManualTag {
     _resolveSaving?: Function;
     _resolveExtend?: Function;
     _resolveFileInfo?: Function;
+    _resolveDirectSearch?: Function;
+    _resolveDirectUrl?: Function;
+    _resolveDirectFetch?: Function;
+    /// Matches the operator named by hand, kept apart from the searched ones.
+    ///
+    /// Separate so that pressing Start does not throw them away: the point of
+    /// the matrix is comparing sources against each other, and a hand-picked
+    /// Discogs release next to whatever the search found is exactly the
+    /// comparison that direct match exists to make possible. `matches` is
+    /// re-seeded from this on reset rather than being the only copy.
+    directMatches: TrackMatch[] = [];
     /// What the file already holds, shown for comparison against the results.
     fileInfo?: any;
     /// Whether `extend()` has already run for the current result set.
@@ -22,21 +52,28 @@ class ManualTag {
     constructor() {}
 
     /// Reset current state
-    reset() {
+    ///
+    /// `keepDirect` is what makes the two halves compose: starting a search
+    /// clears the previous *search*, while a release the operator named by hand
+    /// is theirs until they close the dialog.
+    reset(keepDirect: boolean = false) {
         if (this.ws) {
             this.ws.close();
             this.ws = undefined;
         }
-        this.matches = [];
+        if (!keepDirect) this.directMatches = [];
+        this.matches = [...this.directMatches];
         this.errors = [];
         this.busy = false;
-        this.done = false;
+        // A hand-picked match is a result in its own right: without this the
+        // dialog would sit on the config panel with matches it is not showing.
+        this.done = this.directMatches.length > 0;
         this.extended = false;
     }
 
     /// Start tagging a track
     tagTrack(path: string, config: AutotaggerConfig) {
-        this.reset();
+        this.reset(true);
         this.busy = true;
 
         // Open new WS connection because separate thread
@@ -121,6 +158,55 @@ class ManualTag {
         return r;
     }
 
+    /// Search one platform for releases.
+    ///
+    /// One platform, not the fan-out `tagTrack` does: this runs while someone
+    /// is typing, and Discogs alone sleeps to keep itself under its rate limit.
+    async directSearch(platform: string, query: string): Promise<any> {
+        const $1t = get1t();
+        let promise = new Promise<any>((res) => this._resolveDirectSearch = res);
+        $1t.send('directMatchSearch', { platform, query, config: buildConfig() });
+        let r = await promise;
+        this._resolveDirectSearch = undefined;
+        return r;
+    }
+
+    /// Ask which platform owns a URL. Answered from the URL shape alone, so it
+    /// costs no network call and needs no credentials.
+    async directUrl(url: string): Promise<any> {
+        const $1t = get1t();
+        let promise = new Promise<any>((res) => this._resolveDirectUrl = res);
+        $1t.send('directMatchUrl', { url });
+        let r = await promise;
+        this._resolveDirectUrl = undefined;
+        return r;
+    }
+
+    /// Every track on one named release.
+    async directFetch(platform: string, id: string): Promise<any> {
+        const $1t = get1t();
+        let promise = new Promise<any>((res) => this._resolveDirectFetch = res);
+        $1t.send('directMatchFetch', { platform, id, config: buildConfig() });
+        let r = await promise;
+        this._resolveDirectFetch = undefined;
+        return r;
+    }
+
+    /// Take hand-picked matches into the result set.
+    ///
+    /// Prepended, not appended: these were chosen rather than scored, so they
+    /// lead the list -- and in the list view selection order decides which
+    /// source wins a contested field, which makes the first row the default
+    /// base of the merge.
+    addDirect(matches: TrackMatch[]) {
+        this.directMatches.push(...matches);
+        this.matches = [...matches, ...this.matches];
+        this.done = true;
+        // The new rows have not been through `extend()`, so the matrix must not
+        // go on believing every column is filled in.
+        this.extended = false;
+    }
+
     /// WebSocket message handler
     onWsMessage(json: any) {
         switch (json.action) {
@@ -170,4 +256,4 @@ interface ManualTagError {
 }
 
 export type { TrackMatch };
-export { ManualTag };
+export { ManualTag, buildConfig };

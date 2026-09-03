@@ -19,15 +19,18 @@
                 <span class='text-caption monospace text-grey-4 q-ml-xs'>{{ c.value }}</span>
             </span>
         </div>
-        <!-- Two renderings of the same results, not two features. The list
-             picks a winning *match*; the matrix picks a winning *source per
-             field*, which is the thing the list cannot express. -->
-        <div class='text-center q-mt-md' v-if='$1t.manualTag.value.matches.length > 0'>
+        <!-- Three renderings, not three features. The list picks a winning
+             *match*; the matrix picks a winning *source per field*, which is
+             the thing the list cannot express; direct match is where a result
+             comes from when the search cannot find one. Direct is always
+             offered -- it is the answer to "no results", so hiding it until
+             there are results would hide it exactly when it is wanted. -->
+        <div class='text-center q-mt-md'>
             <q-btn-toggle
                 v-model='view'
                 dense flat no-caps
                 toggle-color='primary'
-                :options="[{label: 'List', value: 'list'}, {label: 'Matrix', value: 'matrix'}]"
+                :options='viewOptions'
             />
         </div>
     </q-card-section>
@@ -35,6 +38,13 @@
     <!-- Body -->
     <q-card-section>
         <div class='manualtag-results bg-dark q-pt-md'>
+
+            <!-- Direct match: name the release yourself -->
+            <ManualTagDirect
+                v-if="view == 'direct'"
+                :path='path!'
+                @add='onDirectAdd'
+            />
 
             <!-- Matrix view -->
             <ManualTagMatrix
@@ -140,8 +150,10 @@
                 </q-item>
             </q-list>
 
-            <!-- Config -->
-            <div v-else>
+            <!-- Config. Explicit rather than `v-else` of the list: with a
+                 third view in the chain, `v-else` drew the platform picker
+                 underneath the direct-match panel. -->
+            <div v-if="view == 'list' && !$1t.manualTag.value.busy && !$1t.manualTag.value.done">
                 <div class='q-mt-md text-subtitle2 text-bold text-center text-primary'>PLATFORMS</div>
                 <autotagger-platforms dense></autotagger-platforms>
                 <autotagger-tags manual-tag></autotagger-tags>
@@ -165,7 +177,7 @@
             <q-btn flat color='red' @click='exit' v-if='!saving'>Close</q-btn>
         </div>
         <!-- Start tagging -->
-        <div class='q-px-sm' v-if='!$1t.manualTag.value.done'>
+        <div class='q-px-sm' v-if="view != 'direct' && !$1t.manualTag.value.done">
             <q-btn 
                 flat 
                 color='primary' 
@@ -228,7 +240,7 @@
 
 <script lang='ts' setup>
 import { ref, toRefs, watch, computed } from 'vue';
-import { TrackMatch } from '../scripts/manualtag';
+import { TrackMatch, buildConfig } from '../scripts/manualtag';
 import { get1t } from '../scripts/onetagger';
 import { AutotaggerConfig } from '../scripts/autotagger';
 import { useQuasar } from 'quasar';
@@ -237,6 +249,7 @@ import AutotaggerPlatforms from './AutotaggerPlatforms.vue';
 import AutotaggerTags from './AutotaggerTags.vue';
 import AutotaggerPlatformSpecific from './AutotaggerPlatformSpecific.vue';
 import ManualTagMatrix from './ManualTagMatrix.vue';
+import ManualTagDirect from './ManualTagDirect.vue';
 import { PLACEHOLDER_IMG, keyColor } from '../scripts/quicktag';
 
 const $q = useQuasar();
@@ -290,27 +303,49 @@ const { path } = toRefs(props);
 const fileDuration = useFileDuration(path!);
 const saving = ref(false);
 const selected = ref<TrackMatch[]>([]);
-const view = ref<'list' | 'matrix'>('list');
+const view = ref<'list' | 'matrix' | 'direct'>('list');
+/// List and Matrix appear once there is something to render in them; Direct is
+/// always there, being the way to produce that something by hand.
+const viewOptions = computed(() => {
+    const out = [];
+    if ($1t.manualTag.value.matches.length > 0) {
+        out.push({ label: 'List', value: 'list' });
+        out.push({ label: 'Matrix', value: 'matrix' });
+    }
+    out.push({ label: 'Direct match', value: 'direct' });
+    return out;
+});
 const errorList = ref(false);
 let cachedConfig = {};
 
 /// Start manual tagger
 function start() {
-    $1t.manualTag.value.reset();
-
-    // Generate config
-    let config = JSON.parse(JSON.stringify($1t.config.value));
-    config.path = '';
-    if ($1t.spotify.value.clientId && $1t.spotify.value.clientSecret) {
-        config.spotify = {
-            clientId: $1t.spotify.value.clientId,
-            clientSecret: $1t.spotify.value.clientSecret,
-        }
-    }
+    // `tagTrack` resets, keeping anything picked by hand -- so the config is
+    // built here and the reset left to it, rather than clearing twice.
+    let config = buildConfig();
     cachedConfig = config;
 
     // Start
     $1t.manualTag.value.tagTrack(path!.value!, config);
+}
+
+/// Take matches the operator named by hand into the result set.
+///
+/// The matrix and the list both read `manualTag.matches` and neither cares how
+/// a row got there, so this is the whole integration: a hand-picked Discogs
+/// release arrives as one more column to arbitrate against.
+function onDirectAdd(matches: TrackMatch[]) {
+    if (!matches.length) return;
+    // Direct match can be reached before a search has ever run, and the matrix
+    // needs a config to extend with either way.
+    if (!Object.keys(cachedConfig).length) cachedConfig = buildConfig();
+    $1t.manualTag.value.addDirect(matches);
+    view.value = 'list';
+    $q.notify({
+        message: matches.length === 1 ? 'Track added to results' : `${matches.length} tracks added to results`,
+        timeout: 3000,
+        position: 'top-right'
+    });
 }
 
 /// Add or remove match
@@ -336,6 +371,10 @@ function exit() {
     selected.value = [];
     saving.value = false;
     show.value = false;
+    // Otherwise the next file opens on whichever view the last one was left on,
+    // and Direct match is a view with no results in it -- so a dialog opened on
+    // a fresh track would show an empty search box rather than the platforms.
+    view.value = 'list';
     emit('exit');
 }
 

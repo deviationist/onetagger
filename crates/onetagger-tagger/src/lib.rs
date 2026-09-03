@@ -375,6 +375,34 @@ pub enum MatchReason {
     Album
 }
 
+/// One row in a direct-match release picker.
+///
+/// Platform-neutral on purpose: the picker is the same list whichever source
+/// filled it, and a platform's own search shape (Discogs' `ReleaseMasterSearchResult`,
+/// Beatport's release JSON) stays inside that platform. Everything but `id` and
+/// `title` is optional because search endpoints are inconsistent about which of
+/// these they return, and a missing label is a blank cell rather than a failure.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseCandidate {
+    /// Opaque to everything but the platform that issued it. Discogs encodes the
+    /// release/master distinction in here rather than adding a second field no
+    /// other platform would use.
+    pub id: String,
+    pub title: String,
+    pub artists: Vec<String>,
+    pub year: Option<i32>,
+    pub label: Option<String>,
+    pub catalog_number: Option<String>,
+    /// Free text ("Vinyl, 12\", 33 ⅓ RPM"): the thing that separates two
+    /// otherwise identical rows, and not worth modelling further.
+    pub format: Option<String>,
+    pub country: Option<String>,
+    pub track_count: Option<usize>,
+    pub art: Option<String>,
+    pub url: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[repr(C)]
 #[serde(untagged)]
@@ -673,6 +701,26 @@ pub trait AutotaggerSourceBuilder: Any + Send + Sync {
     fn config_callback(&mut self, _name: &str, _config: Value) -> ConfigCallbackResponse {
         ConfigCallbackResponse::Empty
     }
+
+    /// Whether this platform can be driven by hand: searched for a release, or
+    /// handed one of its URLs, rather than only matched against a file's tags.
+    ///
+    /// On the builder rather than the source because the UI asks it while
+    /// listing platforms, and building a source is not free -- Discogs validates
+    /// its token over the network on construction.
+    fn supports_direct_match(&self) -> bool {
+        false
+    }
+
+    /// Recognise one of this platform's own URLs and return the id
+    /// `fetch_release` takes, or `None` if the URL is not ours.
+    ///
+    /// Here rather than on the source for the same reason as above: answering
+    /// "whose URL is this" must not cost an authenticated session per platform.
+    #[allow(unused_variables)]
+    fn parse_url(&self, url: &str) -> Option<String> {
+        None
+    }
 }
 
 /// For all the platforms
@@ -688,6 +736,26 @@ pub trait AutotaggerSource: Any + Send + Sync {
     fn get_album(&mut self, id: &str, config: &TaggerConfig) -> Result<Option<Album>, Error> {
         warn!("Album tagging not supported on this platform!");
         Ok(None)
+    }
+
+    /// Free-text release search, for when the operator is doing the matching.
+    ///
+    /// Distinct from `match_track`: there is no file to score against, so this
+    /// returns releases to choose between rather than ranked track matches.
+    #[allow(unused_variables)]
+    fn search_releases(&mut self, query: &str, config: &TaggerConfig) -> Result<Vec<ReleaseCandidate>, Error> {
+        warn!("Direct match is not supported on this platform!");
+        Ok(vec![])
+    }
+
+    /// Every track on one release, as candidates for the operator to pick from.
+    ///
+    /// `MatchReason::ID` rather than a fuzzy score: the release was named, not
+    /// guessed, so there is no accuracy to report.
+    #[allow(unused_variables)]
+    fn fetch_release(&mut self, id: &str, config: &TaggerConfig) -> Result<Vec<TrackMatch>, Error> {
+        warn!("Direct match is not supported on this platform!");
+        Ok(vec![])
     }
 }
 
