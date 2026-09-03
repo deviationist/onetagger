@@ -371,6 +371,16 @@ class OneTagger {
             case 'manualTagApplied':
                 this.manualTag.value._resolveSaving!(json);
                 break;
+            // Direct match: operator-driven matching
+            case 'directMatchSearch':
+                this.manualTag.value._resolveDirectSearch?.(json);
+                break;
+            case 'directMatchUrl':
+                this.manualTag.value._resolveDirectUrl?.(json);
+                break;
+            case 'directMatchFetch':
+                this.manualTag.value._resolveDirectFetch?.(json);
+                break;
 
             // Callback from config
             case 'configCallback':

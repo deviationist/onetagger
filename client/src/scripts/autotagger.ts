@@ -6,6 +6,10 @@ interface AutotaggerPlatform {
     icon: string;
     requiresAuth: boolean;
     supportedTags: SupportedTag[];
+    /// Whether the platform can be searched, or handed one of its URLs, rather
+    /// than only matched against a file's tags. Always false for custom
+    /// platforms: the plugin FFI exports no way to answer it.
+    supportsDirectMatch: boolean;
 }
 
 interface PlatformInfo {
