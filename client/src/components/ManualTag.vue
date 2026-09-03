@@ -153,7 +153,7 @@
             <!-- Config. Explicit rather than `v-else` of the list: with a
                  third view in the chain, `v-else` drew the platform picker
                  underneath the direct-match panel. -->
-            <div v-if="view == 'list' && !$1t.manualTag.value.busy && !$1t.manualTag.value.done">
+            <div v-if="view == 'config' || (view == 'list' && !$1t.manualTag.value.busy && !$1t.manualTag.value.done)">
                 <div class='q-mt-md text-subtitle2 text-bold text-center text-primary'>PLATFORMS</div>
                 <autotagger-platforms dense></autotagger-platforms>
                 <autotagger-tags manual-tag></autotagger-tags>
@@ -177,7 +177,7 @@
             <q-btn flat color='red' @click='exit' v-if='!saving'>Close</q-btn>
         </div>
         <!-- Start tagging -->
-        <div class='q-px-sm' v-if="view != 'direct' && !$1t.manualTag.value.done">
+        <div class='q-px-sm' v-if="(view == 'list' || view == 'config') && !$1t.manualTag.value.done">
             <q-btn 
                 flat 
                 color='primary' 
@@ -303,7 +303,7 @@ const { path } = toRefs(props);
 const fileDuration = useFileDuration(path!);
 const saving = ref(false);
 const selected = ref<TrackMatch[]>([]);
-const view = ref<'list' | 'matrix' | 'direct'>('list');
+const view = ref<'list' | 'matrix' | 'direct' | 'config'>('list');
 /// List and Matrix appear once there is something to render in them; Direct is
 /// always there, being the way to produce that something by hand.
 const viewOptions = computed(() => {
@@ -313,6 +313,16 @@ const viewOptions = computed(() => {
         out.push({ label: 'Matrix', value: 'matrix' });
     }
     out.push({ label: 'Direct match', value: 'direct' });
+    // Always reachable, which it was not.
+    //
+    // The platform and tag pickers used to show only before a result existed,
+    // on the assumption that you choose them and then press Start. Direct match
+    // breaks that assumption: adding a release produces a result without ever
+    // passing through this panel, and then hides it -- so the enabled-tags list,
+    // which decides which fields a write is even allowed to touch, became
+    // unreachable at precisely the moment it mattered. A write would then skip
+    // Title, report success, and leave no way to find out why.
+    out.push({ label: 'Settings', value: 'config' });
     return out;
 });
 const errorList = ref(false);
