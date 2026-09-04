@@ -75,19 +75,6 @@
         <!-- Settings -->
         <Settings v-model="settings" @close="settingsClosed"></Settings>
 
-        <!-- Min size dialog -->
-        <q-dialog v-model="sizeDialog" persistent>
-            <q-card>
-                <q-card-section>
-                    <div class="text-h6">Warning</div>
-                </q-card-section>
-                <q-card-section>
-                    One Tagger requires atleast 1200x550 window size. Please
-                    resize to continue.
-                </q-card-section>
-            </q-card>
-        </q-dialog>
-
         <!-- Update dialog -->
         <q-dialog v-model="updateDialog">
             <q-card v-if="update">
@@ -184,7 +171,6 @@ const left = ref(false);
 const right = ref(false);
 const footer = ref(false);
 const settings = ref(false);
-const sizeDialog = ref(false);
 const update = ref<undefined | { url: string, version: string, changelog: string }>(undefined);
 const updateDialog = ref(false);
 
@@ -268,18 +254,8 @@ function setWaveformWidth() {
 onMounted(() => {
     $q.dark.set(true);
 
-    // Handle resize to apply min height/width
     setWaveformWidth();
-    window.addEventListener("resize", () => {
-        // Fix waveform
-        setWaveformWidth();
-        
-        if (window.innerHeight < 550 || window.innerWidth < 1200) {
-            sizeDialog.value = true;
-        } else {
-            sizeDialog.value = false;
-        }
-    });
+    window.addEventListener("resize", setWaveformWidth);
 
     // Show QT sidebar
     if (isRoute('quicktag')) {

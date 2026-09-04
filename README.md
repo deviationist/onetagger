@@ -58,6 +58,10 @@ library in **AIFF**, this fork is likely worth using.
   reverse proxy instead of failing to open its websocket.
 - The audio endpoint honours HTTP range requests, so seeking in the player works when the
   UI is reached over a network rather than from localhost.
+- No minimum-window-size modal. Upstream blocks the whole UI behind a persistent dialog
+  below 1200x550, which is a reasonable guard for a window the app owns and a nuisance for
+  a browser tab it does not: a split screen or a narrow laptop loses the app rather than
+  the layout. The layout still wants the width; it is now the reader's call.
 
 **Fixes AIFF titles that never reach Plex (and other `NAME`-preferring players)**
 
@@ -206,8 +210,7 @@ documentation and any user-visible text this fork adds.
 Upstream is split on this: on `master` the closed form outnumbers the spaced
 `One Tagger` roughly six to one, and owns the repository, the crates, the
 binary and the image tag -- but the spaced form survives in a handful of
-strings the user actually sees, among them the window title, the
-minimum-window-size warning and two tooltips.
+strings the user actually sees, among them the window title and two tooltips.
 
 Those inherited strings are **left alone**. Rewriting them is a cosmetic diff
 that touches files we have no other reason to modify, and it would conflict on
